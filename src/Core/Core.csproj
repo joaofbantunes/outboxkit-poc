@@ -12,5 +12,9 @@
         <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
         <PackageReference Include="Nito.AsyncEx.Coordination"/>
     </ItemGroup>
+    
+    <ItemGroup>
+      <Folder Include="Push\" />
+    </ItemGroup>
 
 </Project>

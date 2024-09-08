@@ -1,11 +1,13 @@
-using System.Collections.Frozen;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using YakShaveFx.OutboxKit.Core.Polling;
 
 namespace YakShaveFx.OutboxKit.Core;
 
 public static class ServiceCollectionExtensions
 {
+    // TODO: support multiple databases (particularly for multi tenant scenarios, but probably also useful for other unexpected scenarios)
+    // TODO: follow an OpentTelemetry approach to configuring this, returning a custom builder instead of the IServiceCollection
     public static IServiceCollection AddOutboxKit(
         this IServiceCollection services,
         Action<IOutboxKitConfigurator> configure,
@@ -21,9 +23,10 @@ public static class ServiceCollectionExtensions
             var config = s.GetRequiredService<IConfiguration>();
             return config.GetSection(configurationSection).Get<OutboxSettings>() ?? new OutboxSettings();
         });
-        var configurator = new OutboxKitConfigurator(services);
+        services.AddSingleton<PollingSettings>(s => s.GetRequiredService<OutboxSettings>().Polling);
+        var configurator = new OutboxKitConfigurator();
         configure(configurator);
-        configurator.Build();
+        services.AddSingleton<ITargetProducerProvider>(s => new DefaultTargetProducerProvider(s, configurator.TargetProducers));
         return services;
     }
 
@@ -42,42 +45,16 @@ public interface IOutboxKitConfigurator
         where TTargetProducer : class, ITargetProducer;
 }
 
-internal sealed class OutboxKitConfigurator(IServiceCollection services) : IOutboxKitConfigurator
+internal sealed class OutboxKitConfigurator : IOutboxKitConfigurator
 {
     private readonly Dictionary<string, Type> _targetProducers = new();
+    
+    public IReadOnlyDictionary<string, Type> TargetProducers => _targetProducers;
 
     public IOutboxKitConfigurator WithTargetProducer<TTargetProducer>(string target)
         where TTargetProducer : class, ITargetProducer
     {
         _targetProducers[target] = typeof(TTargetProducer);
         return this;
-    }
-
-    public void Build()
-    {
-        services.AddSingleton<ITargetProducerProvider>(s => new TargetProducerProvider(s, _targetProducers));
-    }
-}
-
-internal sealed class TargetProducerProvider : ITargetProducerProvider
-{
-    private readonly FrozenDictionary<string, ITargetProducer> _targetProducers;
-
-    public TargetProducerProvider(IServiceProvider serviceProvider, IReadOnlyDictionary<string, Type> targetProducers)
-    {
-        _targetProducers = targetProducers.ToDictionary(
-                kvp => kvp.Key,
-                kvp => (ITargetProducer)serviceProvider.GetRequiredService(kvp.Value))
-            .ToFrozenDictionary();
-    }
-
-    public ITargetProducer Get(string target)
-    {
-        if (!_targetProducers.TryGetValue(target, out var producer))
-        {
-            throw new InvalidOperationException($"No producer registered for target '{target}'");
-        }
-
-        return producer;
     }
 }

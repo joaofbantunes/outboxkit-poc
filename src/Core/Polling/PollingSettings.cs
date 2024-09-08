@@ -4,15 +4,9 @@
 // </copyright>
 // --------------------------------------------------------------------------------------------------------------------
 
-using Nito.AsyncEx;
+namespace YakShaveFx.OutboxKit.Core.Polling;
 
-namespace YakShaveFx.OutboxKit.Core;
-
-internal sealed class Listener : IOutboxListener, IOutboxTrigger
+public sealed class PollingSettings
 {
-    private readonly AsyncAutoResetEvent _autoResetEvent = new();
-
-    public void OnNewMessages() => _autoResetEvent.Set();
-
-    public Task WaitForMessagesAsync(CancellationToken ct) => _autoResetEvent.WaitAsync(ct);
+    public TimeSpan PollingInterval { get; init; } = TimeSpan.FromMinutes(5);
 }

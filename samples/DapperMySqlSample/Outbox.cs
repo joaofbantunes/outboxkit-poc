@@ -2,6 +2,7 @@ using System.Data;
 using Dapper;
 using MySqlConnector;
 using YakShaveFx.OutboxKit.Core;
+using YakShaveFx.OutboxKit.Core.Polling;
 
 namespace DapperMySqlSample;
 
@@ -25,14 +26,16 @@ internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : I
 
 internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvider timeProvider) : IOutboxBatchFetcher
 {
-    public async Task<IOutboxBatchContext> FetchAndHoldAsync(int size, CancellationToken ct)
+    private const int BatchSize = 100;
+
+    public async Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct)
     {
         var connection = await dataSource.OpenConnectionAsync(ct);
         try
         {
             await connection.OpenAsync(ct);
             var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-            var messages = await FetchMessagesAsync(connection, size, ct);
+            var messages = await FetchMessagesAsync(connection, BatchSize, ct);
 
             if (messages.Length == 0)
             {
@@ -51,8 +54,9 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
             await connection.DisposeAsync();
             throw;
         }
-        
-        static async Task<OutboxMessage[]> FetchMessagesAsync(MySqlConnection connection, int size, CancellationToken ct)
+
+        static async Task<OutboxMessage[]> FetchMessagesAsync(MySqlConnection connection, int size,
+            CancellationToken ct)
         {
             var command = new CommandDefinition(
                 "SELECT Id, Target, Type, Payload, ObservabilityContext, ProducedAt FROM outbox_messages LIMIT @Size",
@@ -60,8 +64,9 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
                 cancellationToken: ct);
             return (await connection.QueryAsync<OutboxMessage>(command)).ToArray();
         }
-        
-        static async Task SetProducedAtAsync(MySqlConnection connection, IEnumerable<long> ids, DateTime now, CancellationToken ct)
+
+        static async Task SetProducedAtAsync(MySqlConnection connection, IEnumerable<long> ids, DateTime now,
+            CancellationToken ct)
         {
             var command = new CommandDefinition(
                 "UPDATE outbox_messages SET ProducedAt = @Now WHERE Id IN @Ids",
@@ -105,7 +110,7 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
                     new { Ids = ids });
                 await tx.CommitAsync(ct);
             }
-            
+
             await connection.DisposeAsync();
         }
     }

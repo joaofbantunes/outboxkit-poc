@@ -1,4 +1,4 @@
-namespace YakShaveFx.OutboxKit.Core;
+namespace YakShaveFx.OutboxKit.Core.Polling;
 
 public interface IOutboxProducer
 {

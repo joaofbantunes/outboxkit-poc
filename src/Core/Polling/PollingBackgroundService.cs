@@ -6,12 +6,11 @@
 
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
-namespace YakShaveFx.OutboxKit.Core;
+namespace YakShaveFx.OutboxKit.Core.Polling;
 
 internal sealed class PollingBackgroundService(
-    OutboxSettings settings,
+    PollingSettings settings,
     Listener listener,
     Producer producer,
     TimeProvider timeProvider,

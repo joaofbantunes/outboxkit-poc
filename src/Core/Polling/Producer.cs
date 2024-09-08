@@ -4,17 +4,15 @@
 // </copyright>
 // --------------------------------------------------------------------------------------------------------------------
 
-using System.Data;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
-namespace YakShaveFx.OutboxKit.Core;
+namespace YakShaveFx.OutboxKit.Core.Polling;
 
 public interface IOutboxBatchFetcher
 {
-    Task<IOutboxBatchContext> FetchAndHoldAsync(int size, CancellationToken ct);
+    Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct);
     Task<bool> IsNewAvailableAsync(CancellationToken ct);
 }
 
@@ -36,12 +34,10 @@ public interface IOutboxBatchContext
 }
 
 internal sealed class Producer(
-    OutboxSettings settings,
+    PollingSettings settings,
     IServiceScopeFactory serviceScopeFactory,
     ILogger<Producer> logger) : IOutboxProducer
 {
-    private readonly int _maxBatchSize = settings.MaxBatchSize;
-
     public async Task ProducePendingAsync(CancellationToken ct)
     {
         // Invokes ProduceBatchAsync while batches are being produce, to exhaust all pending messages.
@@ -58,7 +54,7 @@ internal sealed class Producer(
         var batchFetcher = scope.ServiceProvider.GetRequiredService<IOutboxBatchFetcher>();
         var targetProducerProvider = scope.ServiceProvider.GetRequiredService<ITargetProducerProvider>();
 
-        var batchContext = await batchFetcher.FetchAndHoldAsync(_maxBatchSize, ct);
+        var batchContext = await batchFetcher.FetchAndHoldAsync( ct);
         
         var ok = new List<IMessage>(batchContext.Messages.Count);
         
