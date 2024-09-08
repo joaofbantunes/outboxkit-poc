@@ -36,11 +36,11 @@ public interface IOutboxBatchContext
 }
 
 internal sealed class Producer(
-    IOptions<OutboxSettings> settings,
+    OutboxSettings settings,
     IServiceScopeFactory serviceScopeFactory,
     ILogger<Producer> logger) : IOutboxProducer
 {
-    private readonly int _maxBatchSize = settings.Value.MaxBatchSize;
+    private readonly int _maxBatchSize = settings.MaxBatchSize;
 
     public async Task ProducePendingAsync(CancellationToken ct)
     {

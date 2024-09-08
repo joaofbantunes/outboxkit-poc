@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <AssemblyName>YakShaveFx.OutboxKit.Core.Push</AssemblyName>
+        <RootNamespace>YakShaveFx.OutboxKit.Core.Push</RootNamespace>
+        <PackageId>YakShaveFx.OutboxKit.Core.Push</PackageId>
+        <OutputType>Library</OutputType>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Core\Core.csproj" />
+    </ItemGroup>
+
+</Project>

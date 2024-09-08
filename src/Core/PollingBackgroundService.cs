@@ -11,13 +11,13 @@ using Microsoft.Extensions.Options;
 namespace YakShaveFx.OutboxKit.Core;
 
 internal sealed class PollingBackgroundService(
-    IOptions<OutboxSettings> settings,
+    OutboxSettings settings,
     Listener listener,
     Producer producer,
     TimeProvider timeProvider,
     ILogger<PollingBackgroundService> logger) : BackgroundService
 {
-    private readonly TimeSpan _pollingInterval = settings.Value.PollingInterval;
+    private readonly TimeSpan _pollingInterval = settings.PollingInterval;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

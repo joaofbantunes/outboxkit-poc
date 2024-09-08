@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <AssemblyName>YakShaveFx.OutboxKit.Core.Polling</AssemblyName>
+        <RootNamespace>YakShaveFx.OutboxKit.Core.Polling</RootNamespace>
+        <PackageId>YakShaveFx.OutboxKit.Core.Polling</PackageId>
+        <OutputType>Library</OutputType>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Core\Core.csproj" />
+    </ItemGroup>
+
+</Project>
