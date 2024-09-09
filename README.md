@@ -2,7 +2,7 @@
 
 This is a proof of concept of creating a toolkit to implement the outbox pattern.
 
-The goal is not to provide a full implementation, but to create foundations to implement.
+The goal is not to provide a full implementation of an outbox, but to create foundations to implement it.
 
 I'm going for something that is:
 
