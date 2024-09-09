@@ -16,7 +16,7 @@ public interface IOutboxBatchFetcher
     Task<bool> IsNewAvailableAsync(CancellationToken ct);
 }
 
-public interface IOutboxBatchContext
+public interface IOutboxBatchContext : IAsyncDisposable
 {
     /// <summary>
     /// The batch messages.
@@ -54,7 +54,7 @@ internal sealed class Producer(
         var batchFetcher = scope.ServiceProvider.GetRequiredService<IOutboxBatchFetcher>();
         var targetProducerProvider = scope.ServiceProvider.GetRequiredService<ITargetProducerProvider>();
 
-        var batchContext = await batchFetcher.FetchAndHoldAsync( ct);
+        await using var batchContext = await batchFetcher.FetchAndHoldAsync( ct);
         
         var ok = new List<IMessage>(batchContext.Messages.Count);
         

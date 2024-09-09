@@ -110,17 +110,16 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
                     new { Ids = ids });
                 await tx.CommitAsync(ct);
             }
-
-            await connection.DisposeAsync();
         }
+
+        public ValueTask DisposeAsync() => connection.DisposeAsync();
     }
 
     private sealed class EmptyBatchContext : IOutboxBatchContext
     {
         public static EmptyBatchContext Instance { get; } = new();
-
-        public IReadOnlyCollection<IMessage> Messages { get; } = Array.Empty<IMessage>();
-
+        public IReadOnlyCollection<IMessage> Messages => Array.Empty<IMessage>();
         public Task CompleteAsync(IReadOnlyCollection<IMessage> ok, CancellationToken ct) => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
