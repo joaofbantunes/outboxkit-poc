@@ -13,7 +13,6 @@ namespace YakShaveFx.OutboxKit.Core.Polling;
 public interface IOutboxBatchFetcher
 {
     Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct);
-    Task<bool> IsNewAvailableAsync(CancellationToken ct);
 }
 
 public interface IOutboxBatchContext : IAsyncDisposable
@@ -22,6 +21,11 @@ public interface IOutboxBatchContext : IAsyncDisposable
     /// The batch messages.
     /// </summary>
     IReadOnlyCollection<IMessage> Messages { get; }
+    
+    /// <summary>
+    /// Indicates if there are more messages to fetch.
+    /// </summary>
+    bool HasNext { get; }
     
     /// <summary>
     /// <para>Completes the batch.</para>
@@ -79,7 +83,7 @@ internal sealed class Producer(
             // not passing the actual cancellation token to try to complete the batch even if the application is shutting down
             await batchContext.CompleteAsync(ok, CancellationToken.None);
 
-            return await batchFetcher.IsNewAvailableAsync(ct);
+            return batchContext.HasNext;
         }
         catch (Exception)
         {

@@ -35,7 +35,7 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
         {
             await connection.OpenAsync(ct);
             var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-            var messages = await FetchMessagesAsync(connection, BatchSize, ct);
+            var messages = await FetchMessagesAsync(connection, BatchSize + 1, ct);
 
             if (messages.Length == 0)
             {
@@ -43,11 +43,16 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
                 await connection.DisposeAsync();
                 return EmptyBatchContext.Instance;
             }
-
+            
+            var hasNext = messages.Length > BatchSize;
+            if (hasNext)
+            {
+                messages = messages.AsSpan(0, BatchSize).ToArray();
+            }
             var now = timeProvider.GetUtcNow().DateTime;
             await SetProducedAtAsync(connection, messages.Select(m => m.Id), now, ct);
 
-            return new BatchContext(messages, connection, tx);
+            return new BatchContext(messages, hasNext, connection, tx);
         }
         catch (Exception)
         {
@@ -55,7 +60,9 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
             throw;
         }
 
-        static async Task<OutboxMessage[]> FetchMessagesAsync(MySqlConnection connection, int size,
+        static async Task<OutboxMessage[]> FetchMessagesAsync(
+            MySqlConnection connection,
+            int size,
             CancellationToken ct)
         {
             var command = new CommandDefinition(
@@ -76,21 +83,15 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
         }
     }
 
-    public async Task<bool> IsNewAvailableAsync(CancellationToken ct)
-    {
-        await using var connection = await dataSource.OpenConnectionAsync(ct);
-        var command = new CommandDefinition(
-            "SELECT COUNT(*) > 0 FROM outbox_messages WHERE ProducedAt IS NULL LIMIT 1",
-            cancellationToken: ct);
-        return await connection.ExecuteScalarAsync<bool>(command);
-    }
-
     private class BatchContext(
         IReadOnlyCollection<IMessage> messages,
+        bool hasNext,
         MySqlConnection connection,
         MySqlTransaction tx) : IOutboxBatchContext
     {
         public IReadOnlyCollection<IMessage> Messages => messages;
+        
+        public bool HasNext => hasNext;
 
         public async Task CompleteAsync(IReadOnlyCollection<IMessage> ok, CancellationToken ct)
         {
@@ -113,13 +114,5 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
         }
 
         public ValueTask DisposeAsync() => connection.DisposeAsync();
-    }
-
-    private sealed class EmptyBatchContext : IOutboxBatchContext
-    {
-        public static EmptyBatchContext Instance { get; } = new();
-        public IReadOnlyCollection<IMessage> Messages => Array.Empty<IMessage>();
-        public Task CompleteAsync(IReadOnlyCollection<IMessage> ok, CancellationToken ct) => Task.CompletedTask;
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
