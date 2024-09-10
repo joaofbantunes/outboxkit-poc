@@ -34,7 +34,7 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
         try
         {
             await connection.OpenAsync(ct);
-            var tx = await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            var tx = await connection.BeginTransactionAsync(ct);
             var messages = await FetchMessagesAsync(connection, BatchSize + 1, ct);
 
             if (messages.Length == 0)
@@ -43,16 +43,14 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
                 await connection.DisposeAsync();
                 return EmptyBatchContext.Instance;
             }
-            
+
             var hasNext = messages.Length > BatchSize;
             if (hasNext)
             {
                 messages = messages.AsSpan(0, BatchSize).ToArray();
             }
-            var now = timeProvider.GetUtcNow().DateTime;
-            await SetProducedAtAsync(connection, messages.Select(m => m.Id), now, ct);
 
-            return new BatchContext(messages, hasNext, connection, tx);
+            return new BatchContext(timeProvider, messages, hasNext, connection, tx);
         }
         catch (Exception)
         {
@@ -66,50 +64,40 @@ internal sealed class OutboxBatchFetcher(MySqlDataSource dataSource, TimeProvide
             CancellationToken ct)
         {
             var command = new CommandDefinition(
-                "SELECT Id, Target, Type, Payload, ObservabilityContext, ProducedAt FROM outbox_messages LIMIT @Size",
+                "SELECT Id, Target, Type, Payload, ObservabilityContext, ProducedAt FROM outbox_messages LIMIT @Size FOR UPDATE",
                 new { Size = size },
                 cancellationToken: ct);
             return (await connection.QueryAsync<OutboxMessage>(command)).ToArray();
         }
-
-        static async Task SetProducedAtAsync(MySqlConnection connection, IEnumerable<long> ids, DateTime now,
-            CancellationToken ct)
-        {
-            var command = new CommandDefinition(
-                "UPDATE outbox_messages SET ProducedAt = @Now WHERE Id IN @Ids",
-                new { Now = now, Ids = ids },
-                cancellationToken: ct);
-            await connection.ExecuteAsync(command);
-        }
     }
 
     private class BatchContext(
+        TimeProvider timeProvider,
         IReadOnlyCollection<IMessage> messages,
         bool hasNext,
         MySqlConnection connection,
         MySqlTransaction tx) : IOutboxBatchContext
     {
         public IReadOnlyCollection<IMessage> Messages => messages;
-        
+
         public bool HasNext => hasNext;
 
         public async Task CompleteAsync(IReadOnlyCollection<IMessage> ok, CancellationToken ct)
         {
-            if (ok.Count == messages.Count)
+            if (ok.Count > 0)
             {
+                await connection.ExecuteAsync(
+                    "UPDATE outbox_messages SET ProducedAt = @Now WHERE Id IN @Ids",
+                    new
+                    {
+                        Ids = ok.Cast<OutboxMessage>().Select(m => m.Id),
+                        Now = timeProvider.GetUtcNow().DateTime
+                    });
                 await tx.CommitAsync(ct);
-            }
-            else if (ok.Count == 0)
-            {
-                await tx.RollbackAsync(ct);
             }
             else
             {
-                var ids = messages.Except(ok).Cast<OutboxMessage>().Select(m => m.Id);
-                await connection.ExecuteAsync(
-                    "UPDATE outbox_messages SET ProducedAt = NULL WHERE Id IN @Ids",
-                    new { Ids = ids });
-                await tx.CommitAsync(ct);
+                await tx.RollbackAsync(ct);
             }
         }
 
