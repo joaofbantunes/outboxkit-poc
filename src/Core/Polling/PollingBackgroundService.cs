@@ -1,9 +1,3 @@
-// --------------------------------------------------------------------------------------------------------------------
-// <copyright company="Openvia">
-//     Copyright (c) Openvia. All rights reserved.
-// </copyright>
-// --------------------------------------------------------------------------------------------------------------------
-
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 

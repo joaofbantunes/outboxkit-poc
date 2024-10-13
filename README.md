@@ -6,8 +6,9 @@ The goal is not to provide a full implementation of an outbox, but to create fou
 
 I'm going for something that is:
 
-- somewhat generic, in order to accommodate different technologies, such as message brokers, databases and database access libraries
-- opinionated, as I'm trying to solve problems I'm facing, not everyone's problems 😅
+- somewhat generic - in order to accommodate different technologies, such as message brokers, databases and database access libraries
+- opinionated - I'm trying to solve problems I'm facing, not everyone's problems 😅
+- unambitious - again, I'm trying to solve my problems, not everyone's problems, so it fits my current needs in terms of features and performance, but might not fit yours
 
 ## Why use this?
 

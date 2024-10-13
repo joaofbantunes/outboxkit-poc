@@ -1,9 +1,3 @@
-// --------------------------------------------------------------------------------------------------------------------
-// <copyright company="Openvia">
-//     Copyright (c) Openvia. All rights reserved.
-// </copyright>
-// --------------------------------------------------------------------------------------------------------------------
-
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -40,7 +34,7 @@ public interface IOutboxBatchContext : IAsyncDisposable
 internal sealed class Producer(
     PollingSettings settings,
     IServiceScopeFactory serviceScopeFactory,
-    ILogger<Producer> logger) : IOutboxProducer
+    ILogger<Producer> logger)
 {
     public async Task ProducePendingAsync(CancellationToken ct)
     {
