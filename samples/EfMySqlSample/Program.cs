@@ -2,7 +2,6 @@ using System.Text;
 using Bogus;
 using EfMySqlSample;
 using Microsoft.EntityFrameworkCore;
-using MySqlConnector;
 using YakShaveFx.OutboxKit.Core;
 using YakShaveFx.OutboxKit.MySql.Polling;
 

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using YakShaveFx.OutboxKit.Core.Polling;
 
@@ -56,7 +57,8 @@ public static class ServiceCollectionExtensions
 
         foreach (var (key, pollingConfigurator) in configurator.PollingConfigurators)
         {
-            services.AddHostedService(s => new PollingBackgroundService(
+            // can't use AddHostedService, because it only adds one instance of the service
+            services.AddSingleton<IHostedService>(s => new PollingBackgroundService(
                 key,
                 s.GetRequiredService<PollingSettings>(),
                 s.GetRequiredService<IKeyedOutboxListener>(),
