@@ -47,8 +47,7 @@ public sealed class DbSetupHostedService(IServiceProvider serviceProvider) : IHo
     }
 
     // no-op
-    public Task StopAsync(CancellationToken cancellationToken)
-        => Task.CompletedTask;
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed class OutboxInterceptor(IOutboxTrigger trigger) : SaveChangesInterceptor

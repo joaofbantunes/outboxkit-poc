@@ -75,18 +75,27 @@ public interface IOutboxKitConfigurator
 {
     IOutboxKitConfigurator WithTargetProducer<TTargetProducer>(string target)
         where TTargetProducer : class, ITargetProducer;
-
-    // IOutboxKitConfigurator WithPolling<TPollingOutboxKitConfigurator>(Action<TPollingOutboxKitConfigurator> configure) 
-    //     where TPollingOutboxKitConfigurator : IPollingOutboxKitConfigurator, new();
-    //
-    // IOutboxKitConfigurator WithPolling<TPollingOutboxKitConfigurator>(
-    //     string key,
-    //     Action<TPollingOutboxKitConfigurator> configure)
-    //     where TPollingOutboxKitConfigurator : IPollingOutboxKitConfigurator, new();
-
+    
+    /// <summary>
+    /// <para>Configures outbox kit for polling, with a default key.</para>
+    /// <para>Note: this method is mainly targeted at libraries implementing polling for specific databases,
+    /// not really for end users, unless implementing a custom polling solution.</para>
+    /// </summary>
+    /// <param name="configurator">A database specific polling configurator.</param>
+    /// <typeparam name="TPollingOutboxKitConfigurator">The type of database specific polling configurator.</typeparam>
+    /// <returns>The current configurator instance, for method chaining.</returns>
     IOutboxKitConfigurator WithPolling<TPollingOutboxKitConfigurator>(TPollingOutboxKitConfigurator configurator)
         where TPollingOutboxKitConfigurator : IPollingOutboxKitConfigurator, new();
 
+    /// <summary>
+    /// <para>Configures outbox kit for polling, with a given key.</para>
+    /// <para>Note: this method is mainly targeted at libraries implementing polling for specific databases,
+    /// not really for end users, unless implementing a custom polling solution.</para>
+    /// </summary>
+    /// <param name="key">The key to associate with this polling instance, allowing for multiple instances running in tandem.</param>
+    /// <param name="configurator">A database specific polling configurator.</param>
+    /// <typeparam name="TPollingOutboxKitConfigurator">The type of database specific polling configurator.</typeparam>
+    /// <returns>The current configurator instance, for method chaining.</returns>
     IOutboxKitConfigurator WithPolling<TPollingOutboxKitConfigurator>(
         string key,
         TPollingOutboxKitConfigurator configurator)
