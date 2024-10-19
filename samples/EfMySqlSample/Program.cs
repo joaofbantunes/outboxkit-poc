@@ -23,7 +23,17 @@ builder.Services
     .AddOutboxKit(kit =>
         kit
             .WithTargetProducer<FakeTargetProducer>("fake")
-            .WithMySqlPolling(p => p.WithConnectionString(connectionString)))
+            .WithMySqlPolling(p =>
+                p
+                    .WithConnectionString(connectionString)
+                    .WithTable(t => t
+                        .WithTableName("OutboxMessages")
+                        .WithColumnName(m => m.Id, nameof(OutboxMessage.Id))
+                        .WithColumnName(m => m.Target, nameof(OutboxMessage.Target))
+                        .WithColumnName(m => m.Type, nameof(OutboxMessage.Type))
+                        .WithColumnName(m => m.Payload, nameof(OutboxMessage.Payload))
+                        .WithColumnName(m => m.CreatedAt, nameof(OutboxMessage.CreatedAt))
+                        .WithColumnName(m => m.ObservabilityContext, nameof(OutboxMessage.ObservabilityContext)))))
     .AddSingleton(new Faker())
     .AddSingleton(TimeProvider.System);
 

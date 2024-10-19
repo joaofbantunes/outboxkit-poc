@@ -27,14 +27,13 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
 {
     public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
-        builder.ToTable("outbox_messages");
         builder.HasKey(e => e.Id);
-        builder.Property(e => e.Id).HasColumnName("id");
-        builder.Property(e => e.Target).HasColumnName("target").HasMaxLength(128);
-        builder.Property(e => e.Type).HasColumnName("type").HasMaxLength(128);
-        builder.Property(e => e.Payload).HasColumnName("payload");
-        builder.Property(e => e.CreatedAt).HasColumnName("created_at");
-        builder.Property(e => e.ObservabilityContext).HasColumnName("observability_context");
+        builder.Property(e => e.Id);
+        builder.Property(e => e.Target).HasMaxLength(128);
+        builder.Property(e => e.Type).HasMaxLength(128);
+        builder.Property(e => e.Payload);
+        builder.Property(e => e.CreatedAt);
+        builder.Property(e => e.ObservabilityContext);
     }
 }
 

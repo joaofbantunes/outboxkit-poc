@@ -5,14 +5,26 @@ using YakShaveFx.OutboxKit.Core.Polling;
 
 namespace YakShaveFx.OutboxKit.MySql.Polling;
 
-// TODO: make outbox_messages table name, schema and columns configurable
-
 // ReSharper disable once ClassNeverInstantiated.Global - automagically instantiated by DI
-internal sealed class OutboxBatchFetcher(IServiceProvider services, string key) : IOutboxBatchFetcher
+internal sealed class OutboxBatchFetcher(IServiceProvider services, string key, TableConfiguration tableConfig)
+    : IOutboxBatchFetcher
 {
     private const int BatchSize = 100; // TODO: make configurable
-    
+
     private readonly MySqlDataSource _dataSource = services.GetRequiredKeyedService<MySqlDataSource>(key);
+
+    private readonly string _selectQuery = $"""
+                                            SELECT
+                                                {tableConfig.ColumnNameMappings[nameof(Message.Id)]},
+                                                {tableConfig.ColumnNameMappings[nameof(Message.Target)]},
+                                                {tableConfig.ColumnNameMappings[nameof(Message.Type)]},
+                                                {tableConfig.ColumnNameMappings[nameof(Message.Payload)]},
+                                                {tableConfig.ColumnNameMappings[nameof(Message.CreatedAt)]},
+                                                {tableConfig.ColumnNameMappings[nameof(Message.ObservabilityContext)]}
+                                            FROM {tableConfig.TableName} LIMIT @size FOR UPDATE
+                                            """;
+
+    private readonly string _deleteQuery = $"DELETE FROM {tableConfig.TableName} WHERE id IN ({{0}});";
 
     public async Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct)
     {
@@ -28,59 +40,60 @@ internal sealed class OutboxBatchFetcher(IServiceProvider services, string key) 
                 await connection.DisposeAsync();
                 return EmptyBatchContext.Instance;
             }
-            
+
             var hasNext = messages.Count > BatchSize;
             if (hasNext)
             {
                 messages.RemoveAt(BatchSize);
             }
 
-            return new BatchContext(messages, hasNext, connection, tx);
+            return new BatchContext(messages, hasNext, connection, tx, _deleteQuery);
         }
         catch (Exception)
         {
             await connection.DisposeAsync();
             throw;
         }
+    }
 
-        static async Task<List<Message>> FetchMessagesAsync(MySqlConnection connection,
-            MySqlTransaction tx,
-            int size,
-            CancellationToken ct)
+    private async Task<List<Message>> FetchMessagesAsync(
+        MySqlConnection connection,
+        MySqlTransaction tx,
+        int size,
+        CancellationToken ct)
+    {
+        await using var command = new MySqlCommand(
+            _selectQuery,
+            connection,
+            tx);
+
+        command.Parameters.AddWithValue("size", size);
+
+        await using var reader = await command.ExecuteReaderAsync(ct);
+
+        if (!reader.HasRows) return [];
+
+        var messages = new List<Message>(size);
+        while (await reader.ReadAsync(ct))
         {
-            await using var command = new MySqlCommand(
-                // lang=mysql
-                "SELECT id, target, type, payload, created_at, observability_context FROM outbox_messages LIMIT @size FOR UPDATE",
-                connection,
-                tx);
-            
-            command.Parameters.AddWithValue("size", size);
-
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            
-            if (!reader.HasRows) return [];
-
-            var messages = new List<Message>(size);
-            while (await reader.ReadAsync(ct))
-            {
-                messages.Add(new Message(
-                    reader.GetInt64(0),
-                    reader.GetString(1),
-                    reader.GetString(2),
-                    reader.GetFieldValue<byte[]>(3),
-                    reader.GetDateTime(4),
-                    reader.IsDBNull(5) ? null : reader.GetFieldValue<byte[]>(5)));
-            }
-
-            return messages;
+            messages.Add(new Message(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetFieldValue<byte[]>(3),
+                reader.GetDateTime(4),
+                reader.IsDBNull(5) ? null : reader.GetFieldValue<byte[]>(5)));
         }
+
+        return messages;
     }
 
     private class BatchContext(
         IReadOnlyCollection<IMessage> messages,
         bool hasNext,
         MySqlConnection connection,
-        MySqlTransaction tx) : IOutboxBatchContext
+        MySqlTransaction tx,
+        string deleteQuery) : IOutboxBatchContext
     {
         public IReadOnlyCollection<IMessage> Messages => messages;
 
@@ -90,10 +103,9 @@ internal sealed class OutboxBatchFetcher(IServiceProvider services, string key) 
         {
             if (ok.Count > 0)
             {
-                var idParams = string.Join(", ",Enumerable.Range(0, ok.Count).Select(i => $"@id{i}"));
+                var idParams = string.Join(", ", Enumerable.Range(0, ok.Count).Select(i => $"@id{i}"));
                 var command = new MySqlCommand(
-                    // lang=mysql
-                    $"DELETE FROM outbox_messages WHERE id IN ({idParams});",
+                    string.Format(deleteQuery, idParams),
                     connection,
                     tx);
 
@@ -103,16 +115,16 @@ internal sealed class OutboxBatchFetcher(IServiceProvider services, string key) 
                     command.Parameters.AddWithValue($"id{i}", m.Id);
                     i++;
                 }
-                
+
                 var deleted = await command.ExecuteNonQueryAsync(ct);
-                
+
                 if (deleted != ok.Count)
                 {
                     // think if this is the best way to handle this (considering this shouldn't happen, probably it's good enough)
                     await tx.RollbackAsync(ct);
                     throw new InvalidOperationException("Failed to delete messages");
                 }
-                
+
                 await tx.CommitAsync(ct);
             }
             else
