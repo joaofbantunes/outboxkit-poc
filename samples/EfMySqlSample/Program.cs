@@ -20,12 +20,11 @@ builder.Services
     })
     .AddHostedService<DbSetupHostedService>()
     .AddScoped<OutboxInterceptor>()
-    // needed by outboxkit.mysql, using keyed only to avoid clashing with Pomelo
-    // probably interesting to move this into the outboxkit.mysql package
-    .AddKeyedMySqlDataSource("outboxkit", connectionString) 
     .AddSingleton<FakeTargetProducer>()
-    .AddMySqlOutboxBatchFetcher()
-    .AddOutboxKit(kit => kit.WithTargetProducer<FakeTargetProducer>("fake"))
+    .AddOutboxKit(kit =>
+        kit
+            .WithTargetProducer<FakeTargetProducer>("fake")
+            .WithMySqlPolling(p => p.WithConnectionString(connectionString)))
     .AddSingleton(new Faker())
     .AddSingleton(TimeProvider.System);
 

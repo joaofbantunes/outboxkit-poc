@@ -7,12 +7,12 @@ namespace YakShaveFx.OutboxKit.MySql.Polling;
 
 // TODO: make outbox_messages table name, schema and columns configurable
 
-internal sealed class OutboxBatchFetcher(IServiceProvider services) : IOutboxBatchFetcher
+// ReSharper disable once ClassNeverInstantiated.Global - automagically instantiated by DI
+internal sealed class OutboxBatchFetcher(IServiceProvider services, string key) : IOutboxBatchFetcher
 {
-    private const int BatchSize = 100;
-
-    // TODO: the key should be configurable, to support multi-tenancy?
-    private readonly MySqlDataSource _dataSource = services.GetRequiredKeyedService<MySqlDataSource>("outboxkit");
+    private const int BatchSize = 100; // TODO: make configurable
+    
+    private readonly MySqlDataSource _dataSource = services.GetRequiredKeyedService<MySqlDataSource>(key);
 
     public async Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct)
     {

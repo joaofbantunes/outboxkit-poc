@@ -4,8 +4,9 @@ using Microsoft.Extensions.Logging;
 namespace YakShaveFx.OutboxKit.Core.Polling;
 
 internal sealed class PollingBackgroundService(
+    string key,
     PollingSettings settings,
-    Listener listener,
+    IKeyedOutboxListener listener,
     Producer producer,
     TimeProvider timeProvider,
     ILogger<PollingBackgroundService> logger) : BackgroundService
@@ -22,7 +23,7 @@ internal sealed class PollingBackgroundService(
             {
                 try
                 {
-                    await producer.ProducePendingAsync(stoppingToken);
+                    await producer.ProducePendingAsync(key, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -40,7 +41,7 @@ internal sealed class PollingBackgroundService(
                 // we create a linked token, to cancel them
                 using var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
-                var listenerTask = listener.WaitForMessagesAsync(linkedTokenSource.Token);
+                var listenerTask = listener.WaitForMessagesAsync(key, linkedTokenSource.Token);
                 var delayTask = Task.Delay(_pollingInterval, timeProvider, linkedTokenSource.Token);
 
                 // wait for whatever occurs first:

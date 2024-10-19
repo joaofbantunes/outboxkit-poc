@@ -76,6 +76,8 @@ public sealed class OutboxInterceptor(IOutboxTrigger trigger) : SaveChangesInter
     {
         if (_hasOutboxMessages)
         {
+            // this isn't mandatory, but if we don't trigger it after adding messages to the outbox, they will only be published on the next polling iteration
+            // if waiting for polling iterations is acceptable, then don't call this:  code gets simpler and the db is less loaded
             trigger.OnNewMessages();
         }
 
