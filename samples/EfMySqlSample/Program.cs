@@ -30,6 +30,7 @@ builder.Services
             .WithMySqlPolling(p =>
                 p
                     .WithConnectionString(connectionString)
+                    // this is optional, only needed if the default table name and column names don't match
                     .WithTable(t => t
                         .WithTableName("OutboxMessages")
                         .WithColumnName(m => m.Id, nameof(OutboxMessage.Id))

@@ -38,7 +38,9 @@ builder.Services
                 p =>
                     p
                         .WithConnectionString(connectionStringOne)
+                        // optional, only needed if the default isn't the desired value
                         .WithPollingInterval(TimeSpan.FromSeconds(30))
+                        // optional, only needed if the default isn't the desired value
                         .WithBatchSize(5))
             .WithMySqlPolling(tenantTwo, p => p.WithConnectionString(connectionStringTwo)))
     .AddSingleton(new Faker())
