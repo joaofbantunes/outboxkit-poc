@@ -22,7 +22,7 @@ internal sealed class OutboxBatchFetcher(
                                                 {tableConfig.ColumnNameMappings[nameof(Message.Payload)]},
                                                 {tableConfig.ColumnNameMappings[nameof(Message.CreatedAt)]},
                                                 {tableConfig.ColumnNameMappings[nameof(Message.ObservabilityContext)]}
-                                            FROM {tableConfig.TableName} LIMIT @size FOR UPDATE
+                                            FROM {tableConfig.TableName} LIMIT @size FOR UPDATE;
                                             """;
 
     private readonly string _deleteQuery = $"DELETE FROM {tableConfig.TableName} WHERE id IN ({{0}});";
@@ -56,7 +56,7 @@ internal sealed class OutboxBatchFetcher(
             throw;
         }
     }
-
+// 3572
     private async Task<List<Message>> FetchMessagesAsync(
         MySqlConnection connection,
         MySqlTransaction tx,
