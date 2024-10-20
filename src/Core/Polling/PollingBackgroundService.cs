@@ -1,20 +1,24 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace YakShaveFx.OutboxKit.Core.Polling;
 
-internal sealed class PollingBackgroundService(
+internal sealed partial class PollingBackgroundService(
     string key,
-    PollingSettings settings,
     IKeyedOutboxListener listener,
     Producer producer,
     TimeProvider timeProvider,
+    IServiceProvider services,
     ILogger<PollingBackgroundService> logger) : BackgroundService
 {
-    private readonly TimeSpan _pollingInterval = settings.PollingInterval;
+    private readonly TimeSpan _pollingInterval
+        = services.GetRequiredKeyedService<CorePollingSettings>(key).PollingInterval;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        LogStarting(logger, key, _pollingInterval);
+
         await Task.Yield(); // just to let the startup continue, without waiting on the outbox
 
         while (!stoppingToken.IsCancellationRequested)
@@ -32,9 +36,8 @@ internal sealed class PollingBackgroundService(
                 }
                 catch (Exception ex)
                 {
-                    // We don't want the background service to stop while the application continues, so catching and logging.
-                    // Could eventually be improved by checking the reason for the exception and acting accordingly.
-                    logger.LogError(ex, "Unexpected error while producing pending outbox messages");
+                    // we don't want the background service to stop while the application continues, so catching and logging
+                    LogUnexpectedError(logger, key, ex);
                 }
 
                 // to avoid letting the delays running in the background, wasting resources
@@ -52,6 +55,8 @@ internal sealed class PollingBackgroundService(
                     listenerTask,
                     delayTask);
 
+                LogWakeUp(logger, key, listenerTask.IsCompleted ? "listener triggered" : "polling interval elapsed");
+
                 await linkedTokenSource.CancelAsync();
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -59,5 +64,23 @@ internal sealed class PollingBackgroundService(
                 // expected when the service is stopping, let it stop gracefully
             }
         }
+
+        LogStopping(logger, key);
     }
+
+    [LoggerMessage(LogLevel.Debug,
+        Message =
+            "Starting outbox polling background service for key \"{key}\", with polling interval {pollingInterval}")]
+    private static partial void LogStarting(ILogger logger, string key, TimeSpan pollingInterval);
+
+    [LoggerMessage(LogLevel.Debug, Message = "Shutting down outbox polling background service for key \"{key}\"")]
+    private static partial void LogStopping(ILogger logger, string key);
+
+    [LoggerMessage(LogLevel.Debug,
+        Message = "Waking up outbox polling background service for key \"{key}\", due to \"{reason}\"")]
+    private static partial void LogWakeUp(ILogger logger, string key, string reason);
+
+    [LoggerMessage(LogLevel.Error,
+        Message = "Unexpected error while producing pending outbox messages for key \"{key}\"")]
+    private static partial void LogUnexpectedError(ILogger logger, string key, Exception ex);
 }

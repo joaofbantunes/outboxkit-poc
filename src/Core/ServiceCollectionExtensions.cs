@@ -10,15 +10,8 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddOutboxKit(
         this IServiceCollection services,
-        Action<IOutboxKitConfigurator> configure,
-        string configurationSection = "Outbox")
+        Action<IOutboxKitConfigurator> configure)
     {
-        services.AddSingleton<OutboxSettings>(s =>
-        {
-            var config = s.GetRequiredService<IConfiguration>();
-            return config.GetSection(configurationSection).Get<OutboxSettings>() ?? new OutboxSettings();
-        });
-        services.AddSingleton<PollingSettings>(s => s.GetRequiredService<OutboxSettings>().Polling);
         var configurator = new OutboxKitConfigurator();
         configure(configurator);
         services.AddSingleton<ITargetProducerProvider>(
@@ -60,13 +53,14 @@ public static class ServiceCollectionExtensions
             // can't use AddHostedService, because it only adds one instance of the service
             services.AddSingleton<IHostedService>(s => new PollingBackgroundService(
                 key,
-                s.GetRequiredService<PollingSettings>(),
                 s.GetRequiredService<IKeyedOutboxListener>(),
                 s.GetRequiredService<Producer>(),
                 s.GetRequiredService<TimeProvider>(),
+                s,
                 s.GetRequiredService<ILogger<PollingBackgroundService>>()));
 
-            pollingConfigurator.Configure(key, services);
+            pollingConfigurator.ConfigureServices(key, services);
+            services.AddKeyedSingleton(key, pollingConfigurator.GetCoreSettings());
         }
     }
 }
@@ -104,7 +98,9 @@ public interface IOutboxKitConfigurator
 
 public interface IPollingOutboxKitConfigurator
 {
-    void Configure(string key, IServiceCollection services);
+    void ConfigureServices(string key, IServiceCollection services);
+    
+    CorePollingSettings GetCoreSettings();
 }
 
 internal sealed class OutboxKitConfigurator : IOutboxKitConfigurator

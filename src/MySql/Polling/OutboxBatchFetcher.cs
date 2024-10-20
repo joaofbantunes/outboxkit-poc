@@ -6,12 +6,13 @@ using YakShaveFx.OutboxKit.Core.Polling;
 namespace YakShaveFx.OutboxKit.MySql.Polling;
 
 // ReSharper disable once ClassNeverInstantiated.Global - automagically instantiated by DI
-internal sealed class OutboxBatchFetcher(IServiceProvider services, string key, TableConfiguration tableConfig)
+internal sealed class OutboxBatchFetcher(
+    MySqlPollingSettings pollingSettings,
+    TableConfiguration tableConfig,
+    MySqlDataSource dataSource)
     : IOutboxBatchFetcher
 {
-    private const int BatchSize = 100; // TODO: make configurable
-
-    private readonly MySqlDataSource _dataSource = services.GetRequiredKeyedService<MySqlDataSource>(key);
+    private readonly int _batchSize = pollingSettings.BatchSize;
 
     private readonly string _selectQuery = $"""
                                             SELECT
@@ -28,11 +29,11 @@ internal sealed class OutboxBatchFetcher(IServiceProvider services, string key, 
 
     public async Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct)
     {
-        var connection = await _dataSource.OpenConnectionAsync(ct);
+        var connection = await dataSource.OpenConnectionAsync(ct);
         try
         {
             var tx = await connection.BeginTransactionAsync(ct);
-            var messages = await FetchMessagesAsync(connection, tx, BatchSize + 1, ct);
+            var messages = await FetchMessagesAsync(connection, tx, _batchSize + 1, ct);
 
             if (messages.Count == 0)
             {
@@ -41,10 +42,10 @@ internal sealed class OutboxBatchFetcher(IServiceProvider services, string key, 
                 return EmptyBatchContext.Instance;
             }
 
-            var hasNext = messages.Count > BatchSize;
+            var hasNext = messages.Count > _batchSize;
             if (hasNext)
             {
-                messages.RemoveAt(BatchSize);
+                messages.RemoveAt(_batchSize);
             }
 
             return new BatchContext(messages, hasNext, connection, tx, _deleteQuery);

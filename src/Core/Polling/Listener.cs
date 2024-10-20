@@ -18,8 +18,8 @@ internal sealed class Listener : IOutboxListener, IOutboxTrigger, IKeyedOutboxLi
 
 internal sealed class KeyedListener(IEnumerable<string> keys) : IKeyedOutboxListener, IKeyedOutboxTrigger
 {
-    private readonly FrozenDictionary<string, AsyncAutoResetEvent> _autoResetEvents =
-        keys.ToFrozenDictionary(key => key, _ => new AsyncAutoResetEvent());
+    private readonly FrozenDictionary<string, AsyncAutoResetEvent> _autoResetEvents
+        = keys.ToFrozenDictionary(key => key, _ => new AsyncAutoResetEvent());
 
     public void OnNewMessages(string key)
     {

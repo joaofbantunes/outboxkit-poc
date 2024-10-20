@@ -37,6 +37,10 @@ public interface IMySqlPollingOutboxKitConfigurator
     IMySqlPollingOutboxKitConfigurator WithConnectionString(string connectionString);
 
     IMySqlPollingOutboxKitConfigurator WithTable(Action<IMySqlPollingOutboxTableConfigurator> configure);
+
+    IMySqlPollingOutboxKitConfigurator WithPollingInterval(TimeSpan pollingInterval);
+
+    IMySqlPollingOutboxKitConfigurator WithBatchSize(int batchSize);
 }
 
 public interface IMySqlPollingOutboxTableConfigurator
@@ -51,7 +55,8 @@ internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurat
 {
     private readonly MySqlPollingOutboxTableConfigurator _tableConfigurator = new();
     private string? _connectionString;
-
+    private CorePollingSettings _corePollingSettings = new();
+    private MySqlPollingSettings _mySqlPollingSettings = new();
 
     public IMySqlPollingOutboxKitConfigurator WithConnectionString(string connectionString)
     {
@@ -65,7 +70,28 @@ internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurat
         return this;
     }
 
-    public void Configure(string key, IServiceCollection services)
+    public IMySqlPollingOutboxKitConfigurator WithPollingInterval(TimeSpan pollingInterval)
+    {
+        if (pollingInterval <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pollingInterval), pollingInterval, "Polling interval must be greater than zero");
+        }
+        _corePollingSettings = _corePollingSettings with { PollingInterval = pollingInterval };
+        return this;
+    }
+
+    public IMySqlPollingOutboxKitConfigurator WithBatchSize(int batchSize)
+    {
+        if (batchSize <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(batchSize), batchSize, "Batch size must be greater than zero");
+        }
+
+        _mySqlPollingSettings = _mySqlPollingSettings with { BatchSize = batchSize };
+        return this;
+    }
+
+    public void ConfigureServices(string key, IServiceCollection services)
     {
         if (_connectionString is null)
         {
@@ -76,13 +102,19 @@ internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurat
             .AddKeyedMySqlDataSource(key, _connectionString)
             .AddKeyedSingleton<IOutboxBatchFetcher>(
                 key,
-                (s, _) => new OutboxBatchFetcher(s, key, _tableConfigurator.BuildConfiguration()));
+                (s, _) => new OutboxBatchFetcher(
+                    _mySqlPollingSettings,
+                    _tableConfigurator.BuildConfiguration(),
+                    s.GetRequiredKeyedService<MySqlDataSource>(key)));
     }
+
+    public CorePollingSettings GetCoreSettings() => _corePollingSettings;
 }
 
 internal sealed class MySqlPollingOutboxTableConfigurator : IMySqlPollingOutboxTableConfigurator
 {
     private string _tableName = "outbox_messages";
+
     private readonly Dictionary<string, string> _columnNameMappings = new()
     {
         [nameof(Message.Id)] = "id",
@@ -123,3 +155,8 @@ internal sealed class MySqlPollingOutboxTableConfigurator : IMySqlPollingOutboxT
 }
 
 internal sealed record TableConfiguration(string TableName, IReadOnlyDictionary<string, string> ColumnNameMappings);
+
+internal sealed record MySqlPollingSettings
+{
+    public int BatchSize { get; init; } = 100;
+}

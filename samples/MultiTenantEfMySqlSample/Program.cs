@@ -33,7 +33,13 @@ builder.Services
     .AddOutboxKit(kit =>
         kit
             .WithTargetProducer<FakeTargetProducer>("fake")
-            .WithMySqlPolling(tenantOne, p => p.WithConnectionString(connectionStringOne))
+            .WithMySqlPolling(
+                tenantOne,
+                p =>
+                    p
+                        .WithConnectionString(connectionStringOne)
+                        .WithPollingInterval(TimeSpan.FromSeconds(30))
+                        .WithBatchSize(5))
             .WithMySqlPolling(tenantTwo, p => p.WithConnectionString(connectionStringTwo)))
     .AddSingleton(new Faker())
     .AddSingleton(TimeProvider.System);
