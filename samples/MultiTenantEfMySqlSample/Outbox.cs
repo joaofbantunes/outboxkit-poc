@@ -19,7 +19,7 @@ internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : I
                 message.Type,
                 Encoding.UTF8.GetString(message.Payload),
                 message.CreatedAt,
-                message.ObservabilityContext);
+                message.ObservabilityContext is null ? "null" : $"{message.ObservabilityContext.Length} bytes");
         }
 
         return Task.FromResult(new ProduceResult(x));

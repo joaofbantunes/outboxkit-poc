@@ -2,7 +2,11 @@ using System.Text;
 using Bogus;
 using EfMySqlSample;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using YakShaveFx.OutboxKit.Core;
+using YakShaveFx.OutboxKit.Core.OpenTelemetry;
 using YakShaveFx.OutboxKit.MySql.Polling;
 
 const string connectionString =
@@ -37,6 +41,20 @@ builder.Services
     .AddSingleton(new Faker())
     .AddSingleton(TimeProvider.System);
 
+builder.Services
+    .AddOpenTelemetry()
+    .ConfigureResource(r => r.AddService("EfMySqlSample"))
+    .WithTracing(b => b
+        .AddAspNetCoreInstrumentation()
+        .AddOutboxKitInstrumentation()
+        .AddSource("MySqlConnector")
+        .AddOtlpExporter())
+    .WithMetrics(b => b
+        .AddAspNetCoreInstrumentation()
+        .AddMeter("MySqlConnector")
+        // TODO: add OutboxKit instrumentation
+        .AddOtlpExporter());
+
 var app = builder.Build();
 
 app.MapGet("/", () => "Hello World!");
@@ -50,7 +68,7 @@ app.MapPost("/publish/{count}", async (int count, Faker faker, SampleContext db)
             Type = "sample",
             Payload = Encoding.UTF8.GetBytes(faker.Hacker.Verb()),
             CreatedAt = DateTime.UtcNow,
-            ObservabilityContext = null // TODO
+            ObservabilityContext = ObservabilityContextHelpers.GetCurrentObservabilityContext()
         });
 
     await db.OutboxMessages.AddRangeAsync(messages);

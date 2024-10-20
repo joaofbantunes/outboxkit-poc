@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using YakShaveFx.OutboxKit.Core.OpenTelemetry;
 
 namespace YakShaveFx.OutboxKit.Core.Polling;
 
@@ -16,7 +17,7 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
     // returns true if there is a new batch to produce, false otherwise
     private async Task<bool> ProduceBatchAsync(string key, CancellationToken ct)
     {
-        using var activity = StartActivity("produce outbox message batch");
+        using var activity = StartActivity("produce outbox message batch", key);
         using var scope = serviceScopeFactory.CreateScope();
         var batchFetcher = scope.ServiceProvider.GetRequiredKeyedService<IOutboxBatchFetcher>(key);
         var targetProducerProvider = scope.ServiceProvider.GetRequiredService<ITargetProducerProvider>();
@@ -28,6 +29,7 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
         try
         {
             var messages = batchContext.Messages;
+            activity?.SetTag(ActivityConstants.OutboxBatchSizeTag, messages.Count);
 
             // if we got not messages, there either aren't messages available or are being produced concurrently
             // in either case, we can break the loop
@@ -57,14 +59,19 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
         }
     }
 
-    private static Activity? StartActivity(string activityName)
+    private static Activity? StartActivity(string activityName, string key)
     {
-        if (!Observability.ActivitySource.HasListeners())
+        if (!ActivityHelpers.ActivitySource.HasListeners())
         {
             return null;
         }
 
         // ReSharper disable once ExplicitCallerInfoArgument
-        return Observability.ActivitySource.StartActivity(name: activityName, kind: ActivityKind.Internal);
+        return ActivityHelpers.ActivitySource.StartActivity(
+            name: activityName,
+            kind: ActivityKind.Internal,
+            tags: [new(ActivityConstants.OutboxKeyTag, key)]);
     }
 }
+
+
