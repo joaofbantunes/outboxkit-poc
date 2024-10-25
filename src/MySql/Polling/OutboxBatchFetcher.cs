@@ -27,13 +27,15 @@ internal sealed class OutboxBatchFetcher(
 
     private readonly string _deleteQuery = $"DELETE FROM {tableConfig.TableName} WHERE id IN ({{0}});";
 
+    private readonly string _hasNextQuery = $"SELECT EXISTS(SELECT 1 FROM {tableConfig.TableName} LIMIT 1);";
+
     public async Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct)
     {
         var connection = await dataSource.OpenConnectionAsync(ct);
         try
         {
             var tx = await connection.BeginTransactionAsync(ct);
-            var messages = await FetchMessagesAsync(connection, tx, _batchSize + 1, ct);
+            var messages = await FetchMessagesAsync(connection, tx, _batchSize, ct);
 
             if (messages.Count == 0)
             {
@@ -41,14 +43,8 @@ internal sealed class OutboxBatchFetcher(
                 await connection.DisposeAsync();
                 return EmptyBatchContext.Instance;
             }
-
-            var hasNext = messages.Count > _batchSize;
-            if (hasNext)
-            {
-                messages.RemoveAt(_batchSize);
-            }
-
-            return new BatchContext(messages, hasNext, connection, tx, _deleteQuery);
+            
+            return new BatchContext(messages, connection, tx, _deleteQuery, _hasNextQuery);
         }
         catch (Exception)
         {
@@ -56,6 +52,7 @@ internal sealed class OutboxBatchFetcher(
             throw;
         }
     }
+
 // 3572
     private async Task<List<Message>> FetchMessagesAsync(
         MySqlConnection connection,
@@ -73,7 +70,7 @@ internal sealed class OutboxBatchFetcher(
         await using var reader = await command.ExecuteReaderAsync(ct);
 
         if (!reader.HasRows) return [];
-
+        
         var messages = new List<Message>(size);
         while (await reader.ReadAsync(ct))
         {
@@ -91,14 +88,12 @@ internal sealed class OutboxBatchFetcher(
 
     private class BatchContext(
         IReadOnlyCollection<IMessage> messages,
-        bool hasNext,
         MySqlConnection connection,
         MySqlTransaction tx,
-        string deleteQuery) : IOutboxBatchContext
+        string deleteQuery,
+        string hasNextQuery) : IOutboxBatchContext
     {
         public IReadOnlyCollection<IMessage> Messages => messages;
-
-        public bool HasNext => hasNext;
 
         public async Task CompleteAsync(IReadOnlyCollection<IMessage> ok, CancellationToken ct)
         {
@@ -132,6 +127,19 @@ internal sealed class OutboxBatchFetcher(
             {
                 await tx.RollbackAsync(ct);
             }
+        }
+
+        public async Task<bool> HasNextAsync(CancellationToken ct)
+        {
+            var command = new MySqlCommand(hasNextQuery, connection);
+            var result = await command.ExecuteScalarAsync(ct);
+            return result switch
+            {
+                bool b => b,
+                int i => i == 1,
+                long l => l == 1,
+                _ => false
+            };
         }
 
         public ValueTask DisposeAsync() => connection.DisposeAsync();

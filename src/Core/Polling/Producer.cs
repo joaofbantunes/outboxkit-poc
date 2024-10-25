@@ -48,7 +48,7 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
             // not passing the actual cancellation token to try to complete the batch even if the application is shutting down
             await batchContext.CompleteAsync(ok, CancellationToken.None);
 
-            return batchContext.HasNext;
+            return await batchContext.HasNextAsync(ct);
         }
         catch (Exception)
         {
