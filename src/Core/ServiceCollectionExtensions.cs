@@ -22,6 +22,11 @@ public static class ServiceCollectionExtensions
             AddOutboxKitPolling(services, configurator);
         }
 
+        if (configurator.PushConfigurators.Count > 0)
+        {
+            AddOutboxKitPush(services, configurator);
+        }
+
         return services;
     }
 
@@ -63,13 +68,21 @@ public static class ServiceCollectionExtensions
             services.AddKeyedSingleton(key, pollingConfigurator.GetCoreSettings());
         }
     }
+
+    private static void AddOutboxKitPush(IServiceCollection services, OutboxKitConfigurator configurator)
+    {
+        foreach (var (key, pushConfigurator) in configurator.PushConfigurators)
+        {
+            pushConfigurator.ConfigureServices(key, services);
+        }
+    }
 }
 
 public interface IOutboxKitConfigurator
 {
     IOutboxKitConfigurator WithTargetProducer<TTargetProducer>(string target)
         where TTargetProducer : class, ITargetProducer;
-    
+
     /// <summary>
     /// <para>Configures outbox kit for polling, with a default key.</para>
     /// <para>Note: this method is mainly targeted at libraries implementing polling for specific databases,
@@ -94,23 +107,39 @@ public interface IOutboxKitConfigurator
         string key,
         TPollingOutboxKitConfigurator configurator)
         where TPollingOutboxKitConfigurator : IPollingOutboxKitConfigurator, new();
+
+    IOutboxKitConfigurator WithPush<TPushOutboxKitConfigurator>(
+        TPushOutboxKitConfigurator configurator)
+        where TPushOutboxKitConfigurator : IPushOutboxKitConfigurator, new();
+
+    IOutboxKitConfigurator WithPush<TPushOutboxKitConfigurator>(
+        string key,
+        TPushOutboxKitConfigurator configurator)
+        where TPushOutboxKitConfigurator : IPushOutboxKitConfigurator, new();
 }
 
 public interface IPollingOutboxKitConfigurator
 {
     void ConfigureServices(string key, IServiceCollection services);
-    
+
     CorePollingSettings GetCoreSettings();
+}
+
+public interface IPushOutboxKitConfigurator
+{
+    void ConfigureServices(string key, IServiceCollection services);
 }
 
 internal sealed class OutboxKitConfigurator : IOutboxKitConfigurator
 {
     private readonly Dictionary<string, Type> _targetProducers = new();
     private readonly Dictionary<string, IPollingOutboxKitConfigurator> _pollingConfigurators = new();
+    private readonly Dictionary<string, IPushOutboxKitConfigurator> _pushConfigurators = new();
 
     public IReadOnlyDictionary<string, Type> TargetProducers => _targetProducers;
 
     public IReadOnlyDictionary<string, IPollingOutboxKitConfigurator> PollingConfigurators => _pollingConfigurators;
+    public IReadOnlyDictionary<string, IPushOutboxKitConfigurator> PushConfigurators => _pushConfigurators;
 
     public IOutboxKitConfigurator WithTargetProducer<TTargetProducer>(string target)
         where TTargetProducer : class, ITargetProducer
@@ -130,6 +159,20 @@ internal sealed class OutboxKitConfigurator : IOutboxKitConfigurator
         where TPollingOutboxKitConfigurator : IPollingOutboxKitConfigurator, new()
     {
         _pollingConfigurators.Add(key, configurator);
+        return this;
+    }
+
+    public IOutboxKitConfigurator WithPush<TPushOutboxKitConfigurator>(
+        TPushOutboxKitConfigurator configurator)
+        where TPushOutboxKitConfigurator : IPushOutboxKitConfigurator, new()
+        => WithPush("default", configurator);
+
+    public IOutboxKitConfigurator WithPush<TPushOutboxKitConfigurator>(
+        string key,
+        TPushOutboxKitConfigurator configurator)
+        where TPushOutboxKitConfigurator : IPushOutboxKitConfigurator, new()
+    {
+        _pushConfigurators.Add(key, configurator);
         return this;
     }
 }

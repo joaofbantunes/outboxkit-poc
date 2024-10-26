@@ -22,7 +22,10 @@ internal sealed class OutboxBatchFetcher(
                                                 {tableConfig.ColumnNameMappings[nameof(Message.Payload)]},
                                                 {tableConfig.ColumnNameMappings[nameof(Message.CreatedAt)]},
                                                 {tableConfig.ColumnNameMappings[nameof(Message.ObservabilityContext)]}
-                                            FROM {tableConfig.TableName} LIMIT @size FOR UPDATE;
+                                            FROM {tableConfig.TableName}
+                                            ORDER BY {tableConfig.ColumnNameMappings[nameof(Message.Id)]}
+                                            LIMIT @size
+                                            FOR UPDATE;
                                             """;
 
     private readonly string _deleteQuery = $"DELETE FROM {tableConfig.TableName} WHERE id IN ({{0}});";
