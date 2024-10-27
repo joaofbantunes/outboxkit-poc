@@ -25,6 +25,27 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
         return @lock;
     }
 
+    public async Task<IDistributedLock?> TryAcquireAsync(
+        Func<DistributedLock, Task> onLockLost,
+        CancellationToken ct)
+    {
+        var @lock = new DistributedLock(
+            key,
+            _settings.ChangeStreamsEnabled,
+            onLockLost,
+            services.GetRequiredService<TimeProvider>(),
+            _collection,
+            services.GetRequiredService<ILogger<DistributedLock>>());
+
+        if (await @lock.TryAcquireAsync(ct))
+        {
+            return @lock;
+        }
+
+        await @lock.DisposeAsync();
+        return null;
+    }
+
     private static IMongoCollection<DistributedLockDocument> GetCollection(string key, IServiceProvider services)
     {
         var database = services.GetRequiredKeyedService<IMongoDatabase>(key);
@@ -54,10 +75,11 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
             ExpiresAt = 0
         };
 
+        private bool _skipRelease;
 
         public async Task AcquireAsync(CancellationToken ct)
         {
-            if (await TryAcquireAsync(ct))
+            if (await InnerTryAcquireAsync(ct))
             {
                 OnAcquired(ct);
                 return;
@@ -67,9 +89,20 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
             OnAcquired(ct);
         }
 
+        public async Task<bool> TryAcquireAsync(CancellationToken ct)
+        {
+            var acquired = await InnerTryAcquireAsync(ct);
+            if (acquired) OnAcquired(ct);
+            _skipRelease = !acquired;
+            return acquired;
+        }
+
         public async ValueTask DisposeAsync()
         {
             // try to release the lock, so others can acquire it before expiration
+            
+            if (_skipRelease) return;
+            
             try
             {
                 var result = await collection.DeleteOneAsync(
@@ -88,7 +121,7 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
             }
         }
 
-        private async Task<bool> TryAcquireAsync(CancellationToken ct)
+        private async Task<bool> InnerTryAcquireAsync(CancellationToken ct)
         {
             try
             {
@@ -97,15 +130,6 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
                     _baseDocument with { ExpiresAt = GetExpiresAt() },
                     new ReplaceOptions { IsUpsert = true },
                     ct);
-
-                // _ = await collection.UpdateOneAsync(
-                //     GetUpsertFilter(),
-                //     Builders<DistributedLockDocument>.Update
-                //         .Set(d => d.Id, _baseDocument.Id)
-                //         .Set(d => d.AcquiredBy, _baseDocument.AcquiredBy)
-                //         .Set(d => d.ExpiresAt, GetExpiresAt()),
-                //     new UpdateOptions { IsUpsert = true },
-                //     ct);
 
                 return true;
             }
@@ -157,7 +181,7 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
                     await Task.Delay(remaining, timeProvider, ct);
                 }
 
-                if (await TryAcquireAsync(ct)) return;
+                if (await InnerTryAcquireAsync(ct)) return;
             }
         }
 
@@ -180,7 +204,7 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
             {
                 foreach (var _ in cursor.Current)
                 {
-                    if (await TryAcquireAsync(ct)) return;
+                    if (await InnerTryAcquireAsync(ct)) return;
                 }
             }
         }
@@ -194,7 +218,7 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
                     while (!ct.IsCancellationRequested)
                     {
                         await Task.Delay(KeepAliveInterval, timeProvider, ct);
-                        if (!await TryAcquireAsync(ct))
+                        if (!await InnerTryAcquireAsync(ct))
                         {
                             OnLost();
                             return;
@@ -214,7 +238,7 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
 
                         await linkedTokenSource.CancelAsync();
 
-                        if (!await TryAcquireAsync(ct))
+                        if (!await InnerTryAcquireAsync(ct))
                         {
                             OnLost();
                             return;

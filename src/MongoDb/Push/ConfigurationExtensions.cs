@@ -7,7 +7,7 @@ using YakShaveFx.OutboxKit.MongoDb.Synchronization;
 
 namespace YakShaveFx.OutboxKit.MongoDb.Push;
 
-public static class OutboxKitConfiguratorExtensions
+public static class OutboxKitPushConfiguratorExtensions
 {
     public static IOutboxKitConfigurator WithMongoDbPush(
         this IOutboxKitConfigurator configurator,
@@ -87,15 +87,16 @@ internal sealed class PushOutboxKitConfigurator : IPushOutboxKitConfigurator, IM
             key,
             (s, _) => new Producer(
                 key,
-                s
-                , _mongoPushSettings, s.GetRequiredService<TimeProvider>(),
+                s,
+                _mongoPushSettings,
+                s.GetRequiredService<TimeProvider>(),
                 s.GetRequiredService<ILogger<Producer>>()));
         services.AddKeyedSingleton(
             key,
-            (s, _) => new Synchronization.DistributedLockThingy(key, s));
-        services.AddKeyedSingleton(key, new DistributedLockSettings {ChangeStreamsEnabled = true});
+            (s, _) => new DistributedLockThingy(key, s));
+        services.AddKeyedSingleton(key, new DistributedLockSettings { ChangeStreamsEnabled = true });
 
-    services.AddKeyedSingleton(key, _mongoPushSettings);
+        services.AddKeyedSingleton(key, _mongoPushSettings);
     }
 }
 
