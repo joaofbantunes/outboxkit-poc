@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using YakShaveFx.OutboxKit.Core;
+using YakShaveFx.OutboxKit.MongoDb.Synchronization;
 
 namespace YakShaveFx.OutboxKit.MongoDb.Push;
 
@@ -91,8 +92,10 @@ internal sealed class PushOutboxKitConfigurator : IPushOutboxKitConfigurator, IM
                 s.GetRequiredService<ILogger<Producer>>()));
         services.AddKeyedSingleton(
             key,
-            (s, _) => new MongoDb.DistributedLockThingy(key, s));
-        services.AddKeyedSingleton(key, _mongoPushSettings);
+            (s, _) => new Synchronization.DistributedLockThingy(key, s));
+        services.AddKeyedSingleton(key, new DistributedLockSettings {ChangeStreamsEnabled = true});
+
+    services.AddKeyedSingleton(key, _mongoPushSettings);
     }
 }
 

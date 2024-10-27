@@ -10,7 +10,7 @@ internal sealed partial class PushBackgroundService(
     ILogger<PushBackgroundService> logger) : BackgroundService
 {
     private readonly Producer _producer = services.GetRequiredKeyedService<Producer>(key);
-    private readonly DistributedLockThingy _lockThingy = services.GetRequiredKeyedService<DistributedLockThingy>(key);
+    private readonly Synchronization.DistributedLockThingy _lockThingy = services.GetRequiredKeyedService<Synchronization.DistributedLockThingy>(key);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

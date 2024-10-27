@@ -2,20 +2,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
-namespace YakShaveFx.OutboxKit.MongoDb;
-
-internal interface IDistributedLock : IAsyncDisposable;
-
-internal sealed record DistributedLockDocument
-{
-    public required string Id { get; init; }
-    public required string AcquiredBy { get; init; }
-    public required long ExpiresAt { get; init; }
-}
+namespace YakShaveFx.OutboxKit.MongoDb.Synchronization;
 
 internal sealed partial class DistributedLockThingy(string key, IServiceProvider services)
 {
     private readonly IMongoCollection<DistributedLockDocument> _collection = GetCollection(key, services);
+    private readonly DistributedLockSettings _settings = services.GetRequiredKeyedService<DistributedLockSettings>(key);
 
     public async Task<IDistributedLock> AcquireAsync(
         Func<DistributedLock, Task> onLockLost,
@@ -23,6 +15,7 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
     {
         var @lock = new DistributedLock(
             key,
+            _settings.ChangeStreamsEnabled,
             onLockLost,
             services.GetRequiredService<TimeProvider>(),
             _collection,
@@ -40,6 +33,7 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
 
     internal sealed partial class DistributedLock(
         string key,
+        bool changeStreamsEnabled,
         Func<DistributedLock, Task> onLockLost,
         TimeProvider timeProvider,
         IMongoCollection<DistributedLockDocument> collection,
@@ -133,102 +127,107 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
 
         private async Task KeepTryingToAcquireAsync(CancellationToken ct)
         {
-            // TODO: make change stream optional, so the lock can also be used in a polling approach
+            if (!changeStreamsEnabled)
+            {
+                await PollAndKeepTryingToAcquireAsync(ct);
+                return;
+            }
 
+            using var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var linkedCt = linkedTokenSource.Token;
+
+            var pollingTask = PollAndKeepTryingToAcquireAsync(linkedCt);
+            var changeStreamTask = WatchAndKeepTryingToAcquireAsync(linkedCt);
+
+            // TODO: check if there are some exceptions worth handling here
+            await Task.WhenAny(changeStreamTask, pollingTask);
+            await linkedTokenSource.CancelAsync();
+        }
+
+        private async Task PollAndKeepTryingToAcquireAsync(CancellationToken ct)
+        {
             while (!ct.IsCancellationRequested)
             {
-                using var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                var linkedCt = linkedTokenSource.Token;
-
-                var changeStreamTask = Task.Run(async () =>
+                var current = await collection
+                    .Find(Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, _baseDocument.Id))
+                    .FirstOrDefaultAsync(ct);
+                var remaining = GetRemainingTime(current?.ExpiresAt ?? 0);
+                if (remaining > TimeSpan.Zero)
                 {
-                    using var cursor = await collection.WatchAsync(
-                        PipelineDefinitionBuilder
-                            .For<ChangeStreamDocument<DistributedLockDocument>>()
-                            .Match(d =>
-                                d.OperationType == ChangeStreamOperationType.Delete
-                                && d.DocumentKey["_id"] == _baseDocument.Id),
-                        new ChangeStreamOptions
-                        {
-                            BatchSize = 1,
-                            MaxAwaitTime = TimeSpan.FromMinutes(5)
-                        },
-                        linkedCt);
+                    await Task.Delay(remaining, timeProvider, ct);
+                }
 
-                    while (!linkedCt.IsCancellationRequested && await cursor.MoveNextAsync(ct))
-                    {
-                        foreach (var _ in cursor.Current)
-                        {
-                            if (await TryAcquireAsync(linkedCt)) return true;
-                        }
-                    }
-
-                    return false;
-                }, linkedCt);
-
-                var pollingTask = Task.Run(async () =>
-                {
-                    while (!linkedCt.IsCancellationRequested)
-                    {
-                        var current = await collection
-                            .Find(Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, _baseDocument.Id))
-                            .FirstOrDefaultAsync(linkedCt);
-                        var remaining = GetRemainingTime(current?.ExpiresAt ?? 0);
-                        if (remaining > TimeSpan.Zero)
-                        {
-                            await Task.Delay(remaining, timeProvider, linkedCt);
-                        }
-
-                        if (await TryAcquireAsync(linkedCt)) return true;
-                    }
-
-                    return false;
-                }, linkedCt);
-
-                // TODO: check if there are some exceptions worth handling here
-
-                var result = await Task.WhenAny(changeStreamTask, pollingTask);
-                await linkedTokenSource.CancelAsync();
-                if (result.Result) return;
+                if (await TryAcquireAsync(ct)) return;
             }
         }
 
+        private async Task WatchAndKeepTryingToAcquireAsync(CancellationToken ct)
+        {
+            using var cursor = await collection.WatchAsync(
+                PipelineDefinitionBuilder
+                    .For<ChangeStreamDocument<DistributedLockDocument>>()
+                    .Match(d =>
+                        d.OperationType == ChangeStreamOperationType.Delete
+                        && d.DocumentKey["_id"] == _baseDocument.Id),
+                new ChangeStreamOptions
+                {
+                    BatchSize = 1,
+                    MaxAwaitTime = TimeSpan.FromMinutes(5)
+                },
+                ct);
+
+            while (!ct.IsCancellationRequested && await cursor.MoveNextAsync(ct))
+            {
+                foreach (var _ in cursor.Current)
+                {
+                    if (await TryAcquireAsync(ct)) return;
+                }
+            }
+        }
 
         private void KickoffKeepAlive(CancellationToken ct)
         {
-            // TODO: also add change stream subscription (optional) so we can react to lock loss faster
             _ = Task.Run(async () =>
             {
-                while (!ct.IsCancellationRequested)
+                if (!changeStreamsEnabled)
                 {
-                    var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    var delayTask = Task.Delay(KeepAliveInterval, timeProvider, linkedTokenSource.Token);
-                    var detectLockLossTask = DetectLockLossAsync(linkedTokenSource.Token);
-                    await Task.WhenAny(delayTask, detectLockLossTask);
-
-                    await linkedTokenSource.CancelAsync();
-
-                    if (!ct.IsCancellationRequested && detectLockLossTask.IsCompletedSuccessfully)
+                    while (!ct.IsCancellationRequested)
                     {
-                        LogPotentiallyLost(logger, key);
+                        await Task.Delay(KeepAliveInterval, timeProvider, ct);
+                        if (!await TryAcquireAsync(ct))
+                        {
+                            OnLost();
+                            return;
+                        }
+
+                        LogExtended(logger, key);
                     }
-
-                    if (!await TryAcquireAsync(ct))
+                }
+                else
+                {
+                    while (!ct.IsCancellationRequested)
                     {
-                        LogLost(logger, key);
-                        await onLockLost(this);
-                        return;
-                    }
+                        var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        var delayTask = Task.Delay(KeepAliveInterval, timeProvider, linkedTokenSource.Token);
+                        var watchLockLossTask = WatchForPotentialLockLossAsync(linkedTokenSource.Token);
+                        await Task.WhenAny(delayTask, watchLockLossTask);
 
-                    if (detectLockLossTask.IsCompletedSuccessfully)
-                    {
-                        LogReacquired(logger, key);
+                        await linkedTokenSource.CancelAsync();
+
+                        if (!await TryAcquireAsync(ct))
+                        {
+                            OnLost();
+                            return;
+                        }
+
+                        if (watchLockLossTask.IsCompletedSuccessfully) LogReacquired(logger, key);
+                        else LogExtended(logger, key);
                     }
                 }
             }, ct);
         }
 
-        private async Task DetectLockLossAsync(CancellationToken ct)
+        private async Task WatchForPotentialLockLossAsync(CancellationToken ct)
         {
             using var cursor = await collection.WatchAsync(
                 PipelineDefinitionBuilder
@@ -243,9 +242,9 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
 
             while (!ct.IsCancellationRequested && await cursor.MoveNextAsync(ct))
             {
-                var value = cursor.Current.FirstOrDefault();
-                if (value != null)
+                if (cursor.Current.Any())
                 {
+                    LogPotentiallyLost(logger, key);
                     return;
                 }
             }
@@ -257,6 +256,11 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
             KickoffKeepAlive(ct);
         }
 
+        private void OnLost()
+        {
+            LogLost(logger, key);
+            _ = Task.Run(() => onLockLost(this));
+        }
 
         private long GetNow() => timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
@@ -273,13 +277,16 @@ internal sealed partial class DistributedLockThingy(string key, IServiceProvider
         [LoggerMessage(LogLevel.Debug, Message = "Producer lock acquired for outbox with key \"{key}\"")]
         private static partial void LogAcquired(ILogger logger, string key);
 
+        [LoggerMessage(LogLevel.Debug, Message = "Producer lock ownership extended for outbox with key \"{key}\"")]
+        private static partial void LogExtended(ILogger logger, string key);
+
         [LoggerMessage(LogLevel.Debug, Message = "Producer lock released for outbox with key \"{key}\"")]
         private static partial void LogReleased(ILogger logger, string key);
 
         [LoggerMessage(LogLevel.Debug,
             Message = "Producer lock potentially lost for outbox with key \"{key}\", trying to reacquire")]
         private static partial void LogPotentiallyLost(ILogger logger, string key);
-        
+
         [LoggerMessage(LogLevel.Debug, Message = "Producer lock reacquired for outbox with key \"{key}\"")]
         private static partial void LogReacquired(ILogger logger, string key);
 
