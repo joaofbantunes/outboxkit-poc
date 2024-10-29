@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using YakShaveFx.OutboxKit.Core;
 using YakShaveFx.OutboxKit.Core.Polling;
@@ -102,9 +103,7 @@ internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurat
             .AddKeyedSingleton(key, client)
             .AddKeyedSingleton(key, client.GetDatabase(_databaseName))
             .AddKeyedSingleton(key, new DistributedLockSettings { ChangeStreamsEnabled = false })
-            .AddKeyedSingleton(
-                key,
-                (s, _) => new DistributedLockThingy(key, s))
+            .AddKeyedSingleton<DistributedLockThingy>(key)
             .AddKeyedSingleton<IOutboxBatchFetcher>(
                 key,
                 (s, _) => new OutboxBatchFetcher(

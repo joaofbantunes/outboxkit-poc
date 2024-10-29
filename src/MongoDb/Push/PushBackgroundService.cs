@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using YakShaveFx.OutboxKit.MongoDb.Synchronization;
 
 namespace YakShaveFx.OutboxKit.MongoDb.Push;
 
@@ -10,7 +11,7 @@ internal sealed partial class PushBackgroundService(
     ILogger<PushBackgroundService> logger) : BackgroundService
 {
     private readonly Producer _producer = services.GetRequiredKeyedService<Producer>(key);
-    private readonly Synchronization.DistributedLockThingy _lockThingy = services.GetRequiredKeyedService<Synchronization.DistributedLockThingy>(key);
+    private readonly DistributedLockThingy _lockThingy = services.GetRequiredKeyedService<DistributedLockThingy>(key);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,8 +26,15 @@ internal sealed partial class PushBackgroundService(
             {
                 var ct = linkedTokenSource.Token;
                 await using var @lock = await _lockThingy.AcquireAsync(
-                    // if we unexpectedly lose the lock, we need to stop producing, to avoid duplicates as much as possible
-                    _ => linkedTokenSource.CancelAsync(),
+                    // TODO: make id, owner and duration configurable?
+                    new()
+                    {
+                        Id = "outbox_lock",
+                        Owner = Environment.MachineName,
+                        // if we unexpectedly lose the lock, we need to stop producing, to avoid duplicates as much as possible
+                        // ReSharper disable once AccessToDisposedClosure - lock is disposed before linkedTokenSource
+                        OnLockLost = () => linkedTokenSource.CancelAsync()
+                    },
                     stoppingToken);
 
                 await _producer.WatchAndProduceAsync(ct);
@@ -61,8 +69,6 @@ internal sealed partial class PushBackgroundService(
     [LoggerMessage(LogLevel.Warning, Message = "Lock over outbox with key \"{key}\" unexpectedly lost")]
     private static partial void LogLockLost(ILogger logger, string key);
 
-    [LoggerMessage(
-        LogLevel.Error,
-        Message = "Unexpected error during execution of outbox for key \"{key}\"")]
+    [LoggerMessage(LogLevel.Error, Message = "Unexpected error during execution of outbox for key \"{key}\"")]
     private static partial void LogUnexpectedError(ILogger logger, string key, Exception ex);
 }

@@ -37,17 +37,14 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
     }
 }
 
-public sealed class DbSetupHostedService(IServiceProvider serviceProvider) : IHostedService
+public sealed class DbSetupHostedService(IServiceProvider serviceProvider) : BackgroundService
 {
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<SampleContext>();
-        await context.Database.EnsureCreatedAsync(cancellationToken);
+        await context.Database.EnsureCreatedAsync(stoppingToken);
     }
-
-    // no-op
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed class OutboxInterceptor(IOutboxTrigger trigger) : SaveChangesInterceptor

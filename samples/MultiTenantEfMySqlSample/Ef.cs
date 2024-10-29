@@ -49,9 +49,9 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
     }
 }
 
-public sealed class DbSetupHostedService(IServiceProvider serviceProvider, TenantList tenantList) : IHostedService
+public sealed class DbSetupHostedService(IServiceProvider serviceProvider, TenantList tenantList) : BackgroundService
 {
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         foreach (var tenant in tenantList)
         {
@@ -59,12 +59,9 @@ public sealed class DbSetupHostedService(IServiceProvider serviceProvider, Tenan
             var context = scope.ServiceProvider.GetRequiredService<SampleContext>();
             var tenantProvider = scope.ServiceProvider.GetRequiredService<TenantProvider>();
             tenantProvider.SetTenant(tenant);
-            await context.Database.EnsureCreatedAsync(cancellationToken);
+            await context.Database.EnsureCreatedAsync(stoppingToken);
         }
     }
-
-    // no-op
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed class OutboxInterceptor(IKeyedOutboxTrigger trigger, ITenantProvider tenantProvider)

@@ -14,12 +14,19 @@ internal sealed class OutboxBatchFetcher(
 {
     private readonly int _batchSize = pollingSettings.BatchSize;
 
-    private readonly IMongoCollection<Message> _collection =
-        database.GetCollection<Message>("outbox_messages"); // TODO: make name configurable
+    private readonly IMongoCollection<Message> _collection 
+        = database.GetCollection<Message>("outbox_messages"); // TODO: make name configurable
 
     public async Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct)
     {
-        var @lock = await lockThingy.TryAcquireAsync(_ => Task.CompletedTask, ct);
+        var @lock = await lockThingy.TryAcquireAsync(
+            // TODO: make id, owner and duration configurable?
+            new ()
+            {
+                Id = "outbox_lock",
+                Owner = Environment.MachineName
+            },
+            ct);
         // if we can't acquire, we can assume that another instance is already processing the outbox, so we can just return
         if (@lock is null) return EmptyBatchContext.Instance;
         try

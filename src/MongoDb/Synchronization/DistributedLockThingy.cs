@@ -1,320 +1,276 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
 namespace YakShaveFx.OutboxKit.MongoDb.Synchronization;
 
-internal sealed partial class DistributedLockThingy(string key, IServiceProvider services)
+internal sealed partial class DistributedLockThingy
 {
-    private readonly IMongoCollection<DistributedLockDocument> _collection = GetCollection(key, services);
-    private readonly DistributedLockSettings _settings = services.GetRequiredKeyedService<DistributedLockSettings>(key);
+    private readonly DistributedLockSettings _settings;
+    private readonly IMongoCollection<DistributedLockDocument> _collection;
+    private readonly TimeProvider _timeProvider;
+    private readonly ILogger<DistributedLockThingy> _logger;
 
-    public async Task<IDistributedLock> AcquireAsync(
-        Func<DistributedLock, Task> onLockLost,
-        CancellationToken ct)
+    public DistributedLockThingy(
+        DistributedLockSettings settings,
+        IMongoDatabase database,
+        TimeProvider timeProvider,
+        ILogger<DistributedLockThingy> logger)
     {
-        var @lock = new DistributedLock(
-            key,
-            _settings.ChangeStreamsEnabled,
-            onLockLost,
-            services.GetRequiredService<TimeProvider>(),
-            _collection,
-            services.GetRequiredService<ILogger<DistributedLock>>());
-
-        await @lock.AcquireAsync(ct);
-        return @lock;
+        _settings = settings;
+        _collection = database.GetCollection<DistributedLockDocument>(_settings.CollectionName);
+        _logger = logger;
+        _timeProvider = timeProvider;
     }
 
-    public async Task<IDistributedLock?> TryAcquireAsync(
-        Func<DistributedLock, Task> onLockLost,
-        CancellationToken ct)
+    public async Task<IDistributedLock> AcquireAsync(DistributedLockDefinition lockDefinition, CancellationToken ct)
     {
-        var @lock = new DistributedLock(
-            key,
-            _settings.ChangeStreamsEnabled,
-            onLockLost,
-            services.GetRequiredService<TimeProvider>(),
-            _collection,
-            services.GetRequiredService<ILogger<DistributedLock>>());
+        await KeepTryingToAcquireAsync(lockDefinition, ct);
+        OnAcquired(lockDefinition, ct);
+        return new DistributedLock(lockDefinition, ReleaseLockAsync);
+    }
 
-        if (await @lock.TryAcquireAsync(ct))
+    public async Task<IDistributedLock?> TryAcquireAsync(DistributedLockDefinition lockDefinition, CancellationToken ct)
+    {
+        if (await InnerTryAcquireAsync(lockDefinition, ct))
         {
-            return @lock;
+            OnAcquired(lockDefinition, ct);
+            return new DistributedLock(lockDefinition, ReleaseLockAsync);
         }
 
-        await @lock.DisposeAsync();
         return null;
     }
 
-    private static IMongoCollection<DistributedLockDocument> GetCollection(string key, IServiceProvider services)
+    private async ValueTask ReleaseLockAsync(DistributedLockDefinition lockDefinition)
     {
-        var database = services.GetRequiredKeyedService<IMongoDatabase>(key);
-        return database.GetCollection<DistributedLockDocument>("outbox_locks"); // TODO: make name configurable
+        // try to release the lock, so others can acquire it before expiration
+
+        try
+        {
+            var result = await _collection.DeleteOneAsync(
+                Builders<DistributedLockDocument>.Filter.And(
+                    Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, lockDefinition.Id),
+                    Builders<DistributedLockDocument>.Filter.Eq(d => d.Owner, lockDefinition.Owner)));
+
+            if (result.DeletedCount == 1)
+            {
+                LogReleased(_logger, lockDefinition.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogReleaseFailed(_logger, ex, lockDefinition.Id);
+        }
     }
 
-    internal sealed partial class DistributedLock(
-        string key,
-        bool changeStreamsEnabled,
-        Func<DistributedLock, Task> onLockLost,
-        TimeProvider timeProvider,
-        IMongoCollection<DistributedLockDocument> collection,
-        ILogger<DistributedLock> logger)
-        : IDistributedLock
+    private async Task<bool> InnerTryAcquireAsync(DistributedLockDefinition lockDefinition, CancellationToken ct)
     {
-        private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(5); // TODO: make configurable?
-        private static readonly TimeSpan KeepAliveInterval = LockDuration / 2; // TODO: make configurable?
-
-        private static readonly TimeSpan
-            MaxLockAcquirePollInterval = TimeSpan.FromMinutes(5); // TODO: make configurable?
-
-        // TODO: make configurable?
-        private readonly DistributedLockDocument _baseDocument = new()
+        try
         {
-            Id = "outbox_lock",
-            AcquiredBy = Environment.MachineName,
-            ExpiresAt = 0
-        };
-
-        private bool _skipRelease;
-
-        public async Task AcquireAsync(CancellationToken ct)
-        {
-            if (await InnerTryAcquireAsync(ct))
-            {
-                OnAcquired(ct);
-                return;
-            }
-
-            await KeepTryingToAcquireAsync(ct);
-            OnAcquired(ct);
-        }
-
-        public async Task<bool> TryAcquireAsync(CancellationToken ct)
-        {
-            var acquired = await InnerTryAcquireAsync(ct);
-            if (acquired) OnAcquired(ct);
-            _skipRelease = !acquired;
-            return acquired;
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            // try to release the lock, so others can acquire it before expiration
-            
-            if (_skipRelease) return;
-            
-            try
-            {
-                var result = await collection.DeleteOneAsync(
-                    Builders<DistributedLockDocument>.Filter.And(
-                        Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, _baseDocument.Id),
-                        Builders<DistributedLockDocument>.Filter.Eq(d => d.AcquiredBy, _baseDocument.AcquiredBy)));
-
-                if (result.DeletedCount == 1)
+            _ = await _collection.ReplaceOneAsync(
+                GetUpsertFilter(lockDefinition),
+                new DistributedLockDocument
                 {
-                    LogReleased(logger, key);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogInformation(ex, "Failed to release lock for key {key}", key);
-            }
-        }
-
-        private async Task<bool> InnerTryAcquireAsync(CancellationToken ct)
-        {
-            try
-            {
-                _ = await collection.ReplaceOneAsync(
-                    GetUpsertFilter(),
-                    _baseDocument with { ExpiresAt = GetExpiresAt() },
-                    new ReplaceOptions { IsUpsert = true },
-                    ct);
-
-                return true;
-            }
-            // TODO: would be nice to be able to do this without exceptions, not sure it's possible though, needs investigation
-            catch (MongoWriteException mwex) when (mwex.WriteError.Category == ServerErrorCategory.DuplicateKey)
-            {
-                return false;
-            }
-        }
-
-        private FilterDefinition<DistributedLockDocument> GetUpsertFilter()
-            => Builders<DistributedLockDocument>.Filter.Or(
-                Builders<DistributedLockDocument>.Filter.And(
-                    Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, _baseDocument.Id),
-                    Builders<DistributedLockDocument>.Filter.Eq(d => d.AcquiredBy, _baseDocument.AcquiredBy)),
-                Builders<DistributedLockDocument>.Filter.And(
-                    Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, _baseDocument.Id),
-                    Builders<DistributedLockDocument>.Filter.Lt(d => d.ExpiresAt, GetNow())));
-
-        private async Task KeepTryingToAcquireAsync(CancellationToken ct)
-        {
-            if (!changeStreamsEnabled)
-            {
-                await PollAndKeepTryingToAcquireAsync(ct);
-                return;
-            }
-
-            using var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var linkedCt = linkedTokenSource.Token;
-
-            var pollingTask = PollAndKeepTryingToAcquireAsync(linkedCt);
-            var changeStreamTask = WatchAndKeepTryingToAcquireAsync(linkedCt);
-
-            // TODO: check if there are some exceptions worth handling here
-            await Task.WhenAny(changeStreamTask, pollingTask);
-            await linkedTokenSource.CancelAsync();
-        }
-
-        private async Task PollAndKeepTryingToAcquireAsync(CancellationToken ct)
-        {
-            while (!ct.IsCancellationRequested)
-            {
-                var current = await collection
-                    .Find(Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, _baseDocument.Id))
-                    .FirstOrDefaultAsync(ct);
-                var remaining = GetRemainingTime(current?.ExpiresAt ?? 0);
-                if (remaining > TimeSpan.Zero)
-                {
-                    await Task.Delay(remaining, timeProvider, ct);
-                }
-
-                if (await InnerTryAcquireAsync(ct)) return;
-            }
-        }
-
-        private async Task WatchAndKeepTryingToAcquireAsync(CancellationToken ct)
-        {
-            using var cursor = await collection.WatchAsync(
-                PipelineDefinitionBuilder
-                    .For<ChangeStreamDocument<DistributedLockDocument>>()
-                    .Match(d =>
-                        d.OperationType == ChangeStreamOperationType.Delete
-                        && d.DocumentKey["_id"] == _baseDocument.Id),
-                new ChangeStreamOptions
-                {
-                    BatchSize = 1,
-                    MaxAwaitTime = TimeSpan.FromMinutes(5)
+                    Id = lockDefinition.Id,
+                    Owner = lockDefinition.Owner,
+                    ExpiresAt = GetExpiresAt(lockDefinition.Duration)
                 },
+                new ReplaceOptions { IsUpsert = true },
                 ct);
 
-            while (!ct.IsCancellationRequested && await cursor.MoveNextAsync(ct))
+            return true;
+        }
+        // TODO: would be nice to be able to do this without exceptions, not sure it's possible though, needs investigation
+        catch (MongoWriteException mwex) when (mwex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            return false;
+        }
+    }
+
+    private FilterDefinition<DistributedLockDocument> GetUpsertFilter(DistributedLockDefinition lockDefinition)
+        => Builders<DistributedLockDocument>.Filter.Or(
+            Builders<DistributedLockDocument>.Filter.And(
+                Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, lockDefinition.Id),
+                Builders<DistributedLockDocument>.Filter.Eq(d => d.Owner, lockDefinition.Owner)),
+            Builders<DistributedLockDocument>.Filter.And(
+                Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, lockDefinition.Id),
+                Builders<DistributedLockDocument>.Filter.Lt(d => d.ExpiresAt, GetNow())));
+
+    private async Task KeepTryingToAcquireAsync(DistributedLockDefinition lockDefinition, CancellationToken ct)
+    {
+        if (!_settings.ChangeStreamsEnabled)
+        {
+            await PollAndKeepTryingToAcquireAsync(lockDefinition, ct);
+            return;
+        }
+
+        using var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var linkedCt = linkedTokenSource.Token;
+
+        var pollingTask = PollAndKeepTryingToAcquireAsync(lockDefinition, linkedCt);
+        var changeStreamTask = WatchAndKeepTryingToAcquireAsync(lockDefinition, linkedCt);
+
+        // TODO: check if there are some exceptions worth handling here
+        await Task.WhenAny(changeStreamTask, pollingTask);
+        await linkedTokenSource.CancelAsync();
+    }
+
+    private async Task PollAndKeepTryingToAcquireAsync(DistributedLockDefinition lockDefinition, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            var current = await _collection
+                .Find(Builders<DistributedLockDocument>.Filter.Eq(d => d.Id, lockDefinition.Id))
+                .FirstOrDefaultAsync(ct);
+            var remaining = GetRemainingTime(lockDefinition, current?.ExpiresAt ?? 0);
+            if (remaining > TimeSpan.Zero)
             {
-                foreach (var _ in cursor.Current)
-                {
-                    if (await InnerTryAcquireAsync(ct)) return;
-                }
+                await Task.Delay(remaining, _timeProvider, ct);
+            }
+
+            if (await InnerTryAcquireAsync(lockDefinition, ct)) return;
+        }
+    }
+
+    private async Task WatchAndKeepTryingToAcquireAsync(DistributedLockDefinition lockDefinition, CancellationToken ct)
+    {
+        using var cursor = await _collection.WatchAsync(
+            PipelineDefinitionBuilder
+                .For<ChangeStreamDocument<DistributedLockDocument>>()
+                .Match(d =>
+                    d.OperationType == ChangeStreamOperationType.Delete && d.DocumentKey["_id"] == lockDefinition.Id),
+            new ChangeStreamOptions
+            {
+                BatchSize = 1,
+                MaxAwaitTime = TimeSpan.FromMinutes(5)
+            },
+            ct);
+
+        while (!ct.IsCancellationRequested && await cursor.MoveNextAsync(ct))
+        {
+            foreach (var _ in cursor.Current)
+            {
+                if (await InnerTryAcquireAsync(lockDefinition, ct)) return;
             }
         }
+    }
 
-        private void KickoffKeepAlive(CancellationToken ct)
+    private void KickoffKeepAlive(DistributedLockDefinition lockDefinition, CancellationToken ct)
+    {
+        _ = Task.Run(async () =>
         {
-            _ = Task.Run(async () =>
+            var keepAliveInterval = lockDefinition.Duration / 2;
+            if (!_settings.ChangeStreamsEnabled)
             {
-                if (!changeStreamsEnabled)
+                while (!ct.IsCancellationRequested)
                 {
-                    while (!ct.IsCancellationRequested)
+                    await Task.Delay(keepAliveInterval, _timeProvider, ct);
+                    if (!await InnerTryAcquireAsync(lockDefinition, ct))
                     {
-                        await Task.Delay(KeepAliveInterval, timeProvider, ct);
-                        if (!await InnerTryAcquireAsync(ct))
-                        {
-                            OnLost();
-                            return;
-                        }
-
-                        LogExtended(logger, key);
+                        OnLost(lockDefinition);
+                        return;
                     }
-                }
-                else
-                {
-                    while (!ct.IsCancellationRequested)
-                    {
-                        var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                        var delayTask = Task.Delay(KeepAliveInterval, timeProvider, linkedTokenSource.Token);
-                        var watchLockLossTask = WatchForPotentialLockLossAsync(linkedTokenSource.Token);
-                        await Task.WhenAny(delayTask, watchLockLossTask);
 
-                        await linkedTokenSource.CancelAsync();
-
-                        if (!await InnerTryAcquireAsync(ct))
-                        {
-                            OnLost();
-                            return;
-                        }
-
-                        if (watchLockLossTask.IsCompletedSuccessfully) LogReacquired(logger, key);
-                        else LogExtended(logger, key);
-                    }
-                }
-            }, ct);
-        }
-
-        private async Task WatchForPotentialLockLossAsync(CancellationToken ct)
-        {
-            using var cursor = await collection.WatchAsync(
-                PipelineDefinitionBuilder
-                    .For<ChangeStreamDocument<DistributedLockDocument>>()
-                    .Match(d => d.DocumentKey["_id"] == _baseDocument.Id),
-                new ChangeStreamOptions
-                {
-                    BatchSize = 1,
-                    MaxAwaitTime = TimeSpan.FromMinutes(5)
-                },
-                ct);
-
-            while (!ct.IsCancellationRequested && await cursor.MoveNextAsync(ct))
-            {
-                if (cursor.Current.Any())
-                {
-                    LogPotentiallyLost(logger, key);
-                    return;
+                    LogExtended(_logger, lockDefinition.Id);
                 }
             }
-        }
+            else
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    var delayTask = Task.Delay(keepAliveInterval, _timeProvider,
+                        linkedTokenSource.Token);
+                    var watchLockLossTask = WatchForPotentialLockLossAsync(lockDefinition, linkedTokenSource.Token);
+                    await Task.WhenAny(delayTask, watchLockLossTask);
 
-        private void OnAcquired(CancellationToken ct)
+                    await linkedTokenSource.CancelAsync();
+
+                    if (!await InnerTryAcquireAsync(lockDefinition, ct))
+                    {
+                        OnLost(lockDefinition);
+                        return;
+                    }
+
+                    if (watchLockLossTask.IsCompletedSuccessfully) LogReacquired(_logger, lockDefinition.Id);
+                    else LogExtended(_logger, lockDefinition.Id);
+                }
+            }
+        }, ct);
+    }
+
+    private async Task WatchForPotentialLockLossAsync(DistributedLockDefinition lockDefinition, CancellationToken ct)
+    {
+        using var cursor = await _collection.WatchAsync(
+            PipelineDefinitionBuilder
+                .For<ChangeStreamDocument<DistributedLockDocument>>()
+                .Match(d => d.DocumentKey["_id"] == lockDefinition.Id),
+            new ChangeStreamOptions
+            {
+                BatchSize = 1,
+                MaxAwaitTime = TimeSpan.FromMinutes(5)
+            },
+            ct);
+
+        while (!ct.IsCancellationRequested && await cursor.MoveNextAsync(ct))
         {
-            LogAcquired(logger, key);
-            KickoffKeepAlive(ct);
+            if (cursor.Current.Any())
+            {
+                LogPotentiallyLost(_logger, lockDefinition.Id);
+                return;
+            }
         }
+    }
 
-        private void OnLost()
-        {
-            LogLost(logger, key);
-            _ = Task.Run(() => onLockLost(this));
-        }
+    private void OnAcquired(DistributedLockDefinition lockDefinition, CancellationToken ct)
+    {
+        LogAcquired(_logger, lockDefinition.Id);
+        KickoffKeepAlive(lockDefinition, ct);
+    }
 
-        private long GetNow() => timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+    private void OnLost(DistributedLockDefinition lockDefinition)
+    {
+        LogLost(_logger, lockDefinition.Id);
+        _ = Task.Run(() => lockDefinition.OnLockLost());
+    }
 
-        private long GetExpiresAt() => timeProvider.GetUtcNow().Add(LockDuration).ToUnixTimeMilliseconds();
+    private long GetNow() => _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
 
-        private TimeSpan GetRemainingTime(long expiresAt)
-        {
-            var remaining = expiresAt - timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
-            return remaining > 0
-                ? TimeSpan.FromMilliseconds(Math.Min(remaining, MaxLockAcquirePollInterval.TotalMilliseconds))
-                : TimeSpan.Zero;
-        }
+    private long GetExpiresAt(TimeSpan duration) => _timeProvider.GetUtcNow().Add(duration).ToUnixTimeMilliseconds();
 
-        [LoggerMessage(LogLevel.Debug, Message = "Producer lock acquired for outbox with key \"{key}\"")]
-        private static partial void LogAcquired(ILogger logger, string key);
+    private TimeSpan GetRemainingTime(DistributedLockDefinition lockDefinition, long expiresAt)
+    {
+        var remaining = expiresAt - _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        return remaining > 0
+            ? TimeSpan.FromMilliseconds(Math.Min(remaining, lockDefinition.Duration.TotalMilliseconds))
+            : TimeSpan.Zero;
+    }
 
-        [LoggerMessage(LogLevel.Debug, Message = "Producer lock ownership extended for outbox with key \"{key}\"")]
-        private static partial void LogExtended(ILogger logger, string key);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" acquired")]
+    private static partial void LogAcquired(ILogger logger, string id);
 
-        [LoggerMessage(LogLevel.Debug, Message = "Producer lock released for outbox with key \"{key}\"")]
-        private static partial void LogReleased(ILogger logger, string key);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" ownership extended")]
+    private static partial void LogExtended(ILogger logger, string id);
 
-        [LoggerMessage(LogLevel.Debug,
-            Message = "Producer lock potentially lost for outbox with key \"{key}\", trying to reacquire")]
-        private static partial void LogPotentiallyLost(ILogger logger, string key);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" released")]
+    private static partial void LogReleased(ILogger logger, string id);
 
-        [LoggerMessage(LogLevel.Debug, Message = "Producer lock reacquired for outbox with key \"{key}\"")]
-        private static partial void LogReacquired(ILogger logger, string key);
+    [LoggerMessage(LogLevel.Debug, Message = "Failed to release lock with id \"{Id}\"")]
+    private static partial void LogReleaseFailed(ILogger logger, Exception ex, string id);
+    
+    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" potentially lost, trying to reacquire")]
+    private static partial void LogPotentiallyLost(ILogger logger, string id);
 
-        [LoggerMessage(LogLevel.Debug, Message = "Producer lock lost for outbox with key \"{key}\"")]
-        private static partial void LogLost(ILogger logger, string key);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" reacquired")]
+    private static partial void LogReacquired(ILogger logger, string id);
+
+    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" lost")]
+    private static partial void LogLost(ILogger logger, string id);
+
+
+    private sealed class DistributedLock(
+        DistributedLockDefinition definition,
+        Func<DistributedLockDefinition, ValueTask> releaseLock) : IDistributedLock
+    {
+        public ValueTask DisposeAsync() => releaseLock(definition);
     }
 }
