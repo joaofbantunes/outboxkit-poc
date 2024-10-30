@@ -103,7 +103,11 @@ internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurat
             .AddKeyedSingleton(key, client)
             .AddKeyedSingleton(key, client.GetDatabase(_databaseName))
             .AddKeyedSingleton(key, new DistributedLockSettings { ChangeStreamsEnabled = false })
-            .AddKeyedSingleton<DistributedLockThingy>(key)
+            .AddKeyedSingleton(key, (s, _) => new DistributedLockThingy(
+                s.GetRequiredKeyedService<DistributedLockSettings>(key),
+                s.GetRequiredKeyedService<IMongoDatabase>(key),
+                s.GetRequiredService<TimeProvider>(),
+                s.GetRequiredService<ILogger<DistributedLockThingy>>()))
             .AddKeyedSingleton<IOutboxBatchFetcher>(
                 key,
                 (s, _) => new OutboxBatchFetcher(

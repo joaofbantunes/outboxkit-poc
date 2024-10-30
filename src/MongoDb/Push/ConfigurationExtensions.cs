@@ -91,7 +91,11 @@ internal sealed class PushOutboxKitConfigurator : IPushOutboxKitConfigurator, IM
                 _mongoPushSettings,
                 s.GetRequiredService<TimeProvider>(),
                 s.GetRequiredService<ILogger<Producer>>()));
-        services.AddKeyedSingleton<DistributedLockThingy>(key);
+        services.AddKeyedSingleton(key, (s, _) => new DistributedLockThingy(
+            s.GetRequiredKeyedService<DistributedLockSettings>(key),
+            s.GetRequiredKeyedService<IMongoDatabase>(key),
+            s.GetRequiredService<TimeProvider>(),
+            s.GetRequiredService<ILogger<DistributedLockThingy>>()));
         services.AddKeyedSingleton(key, new DistributedLockSettings { ChangeStreamsEnabled = true });
 
         services.AddKeyedSingleton(key, _mongoPushSettings);
