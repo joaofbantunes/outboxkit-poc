@@ -31,6 +31,7 @@ internal sealed partial class PushBackgroundService(
                     {
                         Id = "outbox_lock",
                         Owner = Environment.MachineName,
+                        Context = key,
                         // if we unexpectedly lose the lock, we need to stop producing, to avoid duplicates as much as possible
                         // ReSharper disable once AccessToDisposedClosure - lock is disposed before linkedTokenSource
                         OnLockLost = () => linkedTokenSource.CancelAsync()

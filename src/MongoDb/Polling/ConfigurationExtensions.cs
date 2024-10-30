@@ -111,6 +111,7 @@ internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurat
             .AddKeyedSingleton<IOutboxBatchFetcher>(
                 key,
                 (s, _) => new OutboxBatchFetcher(
+                    key,
                     _mongoDbPollingSettings,
                     s.GetRequiredKeyedService<IMongoDatabase>(key),
                     s.GetRequiredKeyedService<DistributedLockThingy>(key)));

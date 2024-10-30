@@ -7,6 +7,7 @@ namespace YakShaveFx.OutboxKit.MongoDb.Polling;
 
 // ReSharper disable once ClassNeverInstantiated.Global - automagically instantiated by DI
 internal sealed class OutboxBatchFetcher(
+    string key,
     MongoDbPollingSettings pollingSettings,
     IMongoDatabase database,
     DistributedLockThingy lockThingy)
@@ -24,7 +25,8 @@ internal sealed class OutboxBatchFetcher(
             new ()
             {
                 Id = "outbox_lock",
-                Owner = Environment.MachineName
+                Owner = Environment.MachineName,
+                Context = key
             },
             ct);
         // if we can't acquire, we can assume that another instance is already processing the outbox, so we can just return

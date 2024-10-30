@@ -53,12 +53,12 @@ internal sealed partial class DistributedLockThingy
 
             if (result.DeletedCount == 1)
             {
-                LogReleased(_logger, lockDefinition.Id);
+                LogReleased(_logger, lockDefinition.Id, lockDefinition.Context);
             }
         }
         catch (Exception ex)
         {
-            LogReleaseFailed(_logger, ex, lockDefinition.Id);
+            LogReleaseFailed(_logger, ex, lockDefinition.Id, lockDefinition.Context);
         }
     }
 
@@ -170,7 +170,7 @@ internal sealed partial class DistributedLockThingy
                         return;
                     }
 
-                    LogExtended(_logger, lockDefinition.Id);
+                    LogExtended(_logger, lockDefinition.Id, lockDefinition.Context);
                 }
             }
             else
@@ -191,8 +191,8 @@ internal sealed partial class DistributedLockThingy
                         return;
                     }
 
-                    if (watchLockLossTask.IsCompletedSuccessfully) LogReacquired(_logger, lockDefinition.Id);
-                    else LogExtended(_logger, lockDefinition.Id);
+                    if (watchLockLossTask.IsCompletedSuccessfully) LogReacquired(_logger, lockDefinition.Id, lockDefinition.Context);
+                    else LogExtended(_logger, lockDefinition.Id, lockDefinition.Context);
                 }
             }
         }, ct);
@@ -215,7 +215,7 @@ internal sealed partial class DistributedLockThingy
         {
             if (cursor.Current.Any())
             {
-                LogPotentiallyLost(_logger, lockDefinition.Id);
+                LogPotentiallyLost(_logger, lockDefinition.Id, lockDefinition.Context);
                 return;
             }
         }
@@ -223,13 +223,13 @@ internal sealed partial class DistributedLockThingy
 
     private void OnAcquired(DistributedLockDefinition lockDefinition, CancellationToken ct)
     {
-        LogAcquired(_logger, lockDefinition.Id);
+        LogAcquired(_logger, lockDefinition.Id, lockDefinition.Context);
         KickoffKeepAlive(lockDefinition, ct);
     }
 
     private void OnLost(DistributedLockDefinition lockDefinition)
     {
-        LogLost(_logger, lockDefinition.Id);
+        LogLost(_logger, lockDefinition.Id, lockDefinition.Context);
         _ = Task.Run(() => lockDefinition.OnLockLost());
     }
 
@@ -245,26 +245,26 @@ internal sealed partial class DistributedLockThingy
             : TimeSpan.Zero;
     }
 
-    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" acquired")]
-    private static partial void LogAcquired(ILogger logger, string id);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock acquired (id \"{Id}\" context \"{Context}\")")]
+    private static partial void LogAcquired(ILogger logger, string id, string? context);
 
-    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" ownership extended")]
-    private static partial void LogExtended(ILogger logger, string id);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock ownership extended (id \"{Id}\" context \"{Context}\")")]
+    private static partial void LogExtended(ILogger logger, string id, string? context);
 
-    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" released")]
-    private static partial void LogReleased(ILogger logger, string id);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock released (id \"{Id}\" context \"{Context}\")")]
+    private static partial void LogReleased(ILogger logger, string id, string? context);
 
-    [LoggerMessage(LogLevel.Debug, Message = "Failed to release lock with id \"{Id}\"")]
-    private static partial void LogReleaseFailed(ILogger logger, Exception ex, string id);
+    [LoggerMessage(LogLevel.Debug, Message = "Failed to release lock (id \"{Id}\" context \"{Context}\")")]
+    private static partial void LogReleaseFailed(ILogger logger, Exception ex, string id, string? context);
     
-    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" potentially lost, trying to reacquire")]
-    private static partial void LogPotentiallyLost(ILogger logger, string id);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock potentially lost, trying to reacquire (id \"{Id}\" context \"{Context}\")")]
+    private static partial void LogPotentiallyLost(ILogger logger, string id, string? context);
 
-    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" reacquired")]
-    private static partial void LogReacquired(ILogger logger, string id);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock reacquired (id \"{Id}\" context \"{Context}\")")]
+    private static partial void LogReacquired(ILogger logger, string id, string? context);
 
-    [LoggerMessage(LogLevel.Debug, Message = "Lock with id \"{Id}\" lost")]
-    private static partial void LogLost(ILogger logger, string id);
+    [LoggerMessage(LogLevel.Debug, Message = "Lock lost (id \"{Id}\" context \"{Context}\")")]
+    private static partial void LogLost(ILogger logger, string id, string? context);
 
 
     private sealed class DistributedLock(
