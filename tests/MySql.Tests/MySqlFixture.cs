@@ -9,7 +9,7 @@ using Xunit.Sdk;
 namespace YakShaveFx.OutboxKit.MySql.Tests;
 
 // in xunit 3, we'll be able to use assembly fixtures to share the container across all tests
-// until then, we'll have to use a collection fixture
+// until then, we'll have to use a collection fixture (though this means the tests don't run in parallel)
 
 [CollectionDefinition(Name)]
 public sealed class MySqlCollection : ICollectionFixture<MySqlFixture>
@@ -25,14 +25,9 @@ public sealed class MySqlFixture(IMessageSink diagnosticMessageSink) : IAsyncLif
 {
     private readonly MySqlContainer _container = new MySqlBuilder()
         .WithImage("mysql:8.0")
+        .WithUsername("root")
+        .WithPassword("root")
         .Build();
-
-    // private readonly IContainer _container = new ContainerBuilder()
-    //     .WithImage("mysql:8.0")
-    //     .WithPortBinding(3306, true)
-    //     .WithEnvironment("MYSQL_ROOT_PASSWORD", "root")
-    //     .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("/usr/sbin/mysqld: ready for connections"))
-    //     .Build();
     
     public string ConnectionString => _container.GetConnectionString();
 
