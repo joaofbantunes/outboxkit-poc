@@ -20,6 +20,7 @@ public sealed class MySqlCollection : ICollectionFixture<MySqlFixture>
     // ICollectionFixture<> interfaces.
 }
 
+// ReSharper disable once ClassNeverInstantiated.Global - it's instantiated by xUnit
 public sealed class MySqlFixture(IMessageSink diagnosticMessageSink) : IAsyncLifetime
 {
     private readonly MySqlContainer _container = new MySqlBuilder()
@@ -27,23 +28,58 @@ public sealed class MySqlFixture(IMessageSink diagnosticMessageSink) : IAsyncLif
         .WithUsername("root")
         .WithPassword("root")
         .Build();
-
-    public async Task<DatabaseContext> SetupDatabaseContextAsync()
-    {
-        var connectionString = _container.GetConnectionString();
-        var databaseName = $"test_{Guid.NewGuid():N}";
-        await using var c = new MySqlConnection(connectionString);
-        await c.OpenAsync();
-        await using var createDbCommand = new MySqlCommand($"CREATE DATABASE {databaseName};", c);
-        await createDbCommand.ExecuteNonQueryAsync();
-        return new DatabaseContext(connectionString, databaseName, diagnosticMessageSink);
-    }
+    
+    public IDatabaseContextInitializer DbInitializer 
+        => new DatabaseContextInitializer(_container.GetConnectionString(), diagnosticMessageSink);
 
     public Task InitializeAsync() => _container.StartAsync();
 
     public async Task DisposeAsync() => await _container.DisposeAsync();
 
-    public sealed class DatabaseContext(
+    private sealed class DatabaseContextInitializer(string originalConnectionString, IMessageSink diagnosticMessageSink)
+        : IDatabaseContextInitializer
+    {
+        // won't be a flag, as we'll need to actually allow for configuring the custom schema
+        private bool _defaultSchema = true;
+
+        // int for now, maybe we'll need a more complex seeding strategy later
+        private int _seedCount;
+
+        public IDatabaseContextInitializer WithDefaultSchema()
+        {
+            _defaultSchema = true;
+            return this;
+        }
+
+        public IDatabaseContextInitializer WithSeed(int count = 10)
+        {
+            _seedCount = count;
+            return this;
+        }
+
+        public async Task<IDatabaseContext> InitAsync()
+        {
+            var databaseName = $"test_{Guid.NewGuid():N}";
+            await using var connection = new MySqlConnection(originalConnectionString);
+            await connection.OpenAsync();
+            await using var createDbCommand = new MySqlCommand($"CREATE DATABASE {databaseName};", connection);
+            await createDbCommand.ExecuteNonQueryAsync();
+
+            if (_defaultSchema)
+            {
+                await connection.SetupDatabaseWithDefaultSettingsAsync(databaseName);
+            }
+
+            if (_seedCount > 0)
+            {
+                await connection.SeedAsync(databaseName, _seedCount);
+            }
+
+            return new DatabaseContext(originalConnectionString, databaseName, diagnosticMessageSink);
+        }
+    }
+
+    private sealed class DatabaseContext(
         string originalConnectionString,
         string databaseName,
         IMessageSink diagnosticMessageSink) : IDatabaseContext
@@ -77,34 +113,40 @@ public interface IDatabaseContext : IAsyncDisposable
     MySqlDataSource DataSource { get; }
 }
 
-public static class CenasExtensions
+public interface IDatabaseContextInitializer
 {
-    public static async Task SetupDatabaseWithDefaultSettingsAsync(this MySqlDataSource dataSource, int seedCount = 10)
+    IDatabaseContextInitializer WithDefaultSchema();
+
+    IDatabaseContextInitializer WithSeed(int seedCount = 10);
+
+    Task<IDatabaseContext> InitAsync();
+}
+
+file static class InitializationExtensions
+{
+    public static async Task SetupDatabaseWithDefaultSettingsAsync(this MySqlConnection connection, string databaseName)
     {
-        await using var connection = await dataSource.OpenConnectionAsync();
         await using var command = new MySqlCommand(
             // lang=mysql
-            """
-            create table if not exists outbox_messages
-            (
-                id                    bigint auto_increment primary key,
-                target                varchar(128) not null,
-                type                  varchar(128) not null,
-                payload               longblob     not null,
-                created_at            datetime(6)  not null,
-                observability_context longblob     null
-            );
-            """, connection);
+            $"""
+             create table if not exists {databaseName}.outbox_messages
+             (
+                 id                    bigint auto_increment primary key,
+                 target                varchar(128) not null,
+                 type                  varchar(128) not null,
+                 payload               longblob     not null,
+                 created_at            datetime(6)  not null,
+                 observability_context longblob     null
+             );
+             """, connection);
         await command.ExecuteNonQueryAsync();
-        
-        await SeedAsync(dataSource, seedCount);
     }
 
-    private static async Task SeedAsync(MySqlDataSource dataSource, int seedCount)
+    public static async Task SeedAsync(this MySqlConnection connection, string databaseName, int seedCount)
     {
-        if(seedCount == 0) return;
-        
-        var messages = Enumerable.Range(0, seedCount).Select(i => new Message(
+        if (seedCount == 0) return;
+
+        var messages = Enumerable.Range(1, seedCount).Select(i => new Message(
             0,
             "some-target",
             "some-type",
@@ -112,10 +154,10 @@ public static class CenasExtensions
             DateTime.UtcNow,
             null
         ));
-        await using var connection = await dataSource.OpenConnectionAsync();
+
         await connection.ExecuteAsync(
             // lang=mysql
-            "INSERT INTO outbox_messages (target, type, payload, created_at, observability_context) VALUES (@Target, @Type, @Payload, @CreatedAt, @ObservabilityContext);",
+            $"INSERT INTO {databaseName}.outbox_messages (target, type, payload, created_at, observability_context) VALUES (@Target, @Type, @Payload, @CreatedAt, @ObservabilityContext);",
             messages);
     }
 }

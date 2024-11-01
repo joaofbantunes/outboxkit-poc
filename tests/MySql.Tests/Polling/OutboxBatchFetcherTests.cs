@@ -8,16 +8,15 @@ namespace YakShaveFx.OutboxKit.MySql.Tests.Polling;
 public class OutboxBatchFetcherTests(MySqlFixture mySqlFixture)
 {
     [Fact]
-    public async Task WhenTheOutboxIsPolledInParallelThenTheSecondToArriveGetsBlocked()
+    public async Task WhenTheOutboxIsPolledConcurrentlyThenTheSecondGetsBlocked()
     {
-        await using var databaseContext = await mySqlFixture.SetupDatabaseContextAsync();
-        await databaseContext.DataSource.SetupDatabaseWithDefaultSettingsAsync();
+        await using var databaseContext = await mySqlFixture.DbInitializer.WithDefaultSchema().WithSeed().InitAsync();
         await using var connection = await databaseContext.DataSource.OpenConnectionAsync();
 
         var sut1 = new OutboxBatchFetcher(DefaultPollingSettings, DefaultTableConfig, databaseContext.DataSource);
         var sut2 = new OutboxBatchFetcher(DefaultPollingSettings, DefaultTableConfig, databaseContext.DataSource);
 
-        // start fetching from the outbox in parallel
+        // start fetching from the outbox concurrently
         // - first delay is to ensure the first query is executed before the second one
         // - second delay is to give the second query time to block
         // (if there's a better way to test this, I'm all ears 😅)
@@ -36,5 +35,27 @@ public class OutboxBatchFetcherTests(MySqlFixture mySqlFixture)
             IsCompleted = false,
             IsCompletedSuccessfully = false,
         });
+    }
+
+    [Fact]
+    public async Task WhenTheOutboxIsPolledConcurrentlyTheSecondIsUnblockedByTheFirstCompletingObtainingTheNextBatch()
+    {
+        await using var databaseContext = await mySqlFixture.DbInitializer.WithDefaultSchema().WithSeed().InitAsync();
+        await using var connection = await databaseContext.DataSource.OpenConnectionAsync();
+
+        var sut1 = new OutboxBatchFetcher(DefaultPollingSettings, DefaultTableConfig, databaseContext.DataSource);
+        var sut2 = new OutboxBatchFetcher(DefaultPollingSettings, DefaultTableConfig, databaseContext.DataSource);
+
+        var batch1Task = sut1.FetchAndHoldAsync(CancellationToken.None);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        var batch2Task = sut2.FetchAndHoldAsync(CancellationToken.None);
+
+        await using var batch1 = await batch1Task;
+        await batch1.CompleteAsync(batch1.Messages, CancellationToken.None);
+        batch1.Messages.Cast<Message>().Should().AllSatisfy(m => m.Id.Should().BeInRange(1, 5));
+        
+        await using var batch2 = await batch2Task;
+        await batch2.CompleteAsync(batch2.Messages, CancellationToken.None);
+        batch2.Messages.Cast<Message>().Should().AllSatisfy(m => m.Id.Should().BeInRange(6, 10));
     }
 }
