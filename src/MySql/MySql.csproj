@@ -16,4 +16,8 @@
       <ProjectReference Include="..\Core\Core.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <InternalsVisibleTo Include="MySql.Tests" />
+    </ItemGroup>
+    
 </Project>
