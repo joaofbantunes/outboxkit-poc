@@ -1,10 +1,9 @@
-using DotNet.Testcontainers.Builders;
-using DotNet.Testcontainers.Configurations;
-using DotNet.Testcontainers.Containers;
+using Dapper;
 using MySqlConnector;
 using Testcontainers.MySql;
 using Xunit.Abstractions;
 using Xunit.Sdk;
+using System.Text.Json;
 
 namespace YakShaveFx.OutboxKit.MySql.Tests;
 
@@ -28,17 +27,16 @@ public sealed class MySqlFixture(IMessageSink diagnosticMessageSink) : IAsyncLif
         .WithUsername("root")
         .WithPassword("root")
         .Build();
-    
-    public string ConnectionString => _container.GetConnectionString();
 
     public async Task<DatabaseContext> SetupDatabaseContextAsync()
     {
+        var connectionString = _container.GetConnectionString();
         var databaseName = $"test_{Guid.NewGuid():N}";
-        await using var c = new MySqlConnection(ConnectionString);
+        await using var c = new MySqlConnection(connectionString);
         await c.OpenAsync();
         await using var createDbCommand = new MySqlCommand($"CREATE DATABASE {databaseName};", c);
         await createDbCommand.ExecuteNonQueryAsync();
-        return new DatabaseContext(ConnectionString, databaseName, diagnosticMessageSink);
+        return new DatabaseContext(connectionString, databaseName, diagnosticMessageSink);
     }
 
     public Task InitializeAsync() => _container.StartAsync();
@@ -81,7 +79,7 @@ public interface IDatabaseContext : IAsyncDisposable
 
 public static class CenasExtensions
 {
-    public static async Task SetupDatabaseWithDefaultSettingsAsync(this MySqlDataSource dataSource)
+    public static async Task SetupDatabaseWithDefaultSettingsAsync(this MySqlDataSource dataSource, int seedCount = 10)
     {
         await using var connection = await dataSource.OpenConnectionAsync();
         await using var command = new MySqlCommand(
@@ -98,5 +96,26 @@ public static class CenasExtensions
             );
             """, connection);
         await command.ExecuteNonQueryAsync();
+        
+        await SeedAsync(dataSource, seedCount);
+    }
+
+    private static async Task SeedAsync(MySqlDataSource dataSource, int seedCount)
+    {
+        if(seedCount == 0) return;
+        
+        var messages = Enumerable.Range(0, seedCount).Select(i => new Message(
+            0,
+            "some-target",
+            "some-type",
+            JsonSerializer.SerializeToUtf8Bytes($"payload{i}"),
+            DateTime.UtcNow,
+            null
+        ));
+        await using var connection = await dataSource.OpenConnectionAsync();
+        await connection.ExecuteAsync(
+            // lang=mysql
+            "INSERT INTO outbox_messages (target, type, payload, created_at, observability_context) VALUES (@Target, @Type, @Payload, @CreatedAt, @ObservabilityContext);",
+            messages);
     }
 }
