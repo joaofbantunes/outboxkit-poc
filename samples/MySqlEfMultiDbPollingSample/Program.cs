@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
 using Bogus;
-using MultiTenantEfMySqlSample;
+using MySqlEfMultiDbPollingSample;
 using YakShaveFx.OutboxKit.Core;
 using YakShaveFx.OutboxKit.MySql.Polling;
 

@@ -1,7 +1,7 @@
 using System.Collections;
 using System.Collections.Frozen;
 
-namespace MultiTenantEfMySqlSample;
+namespace MySqlEfMultiDbPollingSample;
 
 public sealed record TenantList(IReadOnlySet<string> Tenants) : IReadOnlyCollection<string>
 {

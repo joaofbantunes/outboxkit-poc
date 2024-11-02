@@ -1,7 +1,7 @@
 using System.Text;
 using Bogus;
-using EfMySqlSample;
 using Microsoft.EntityFrameworkCore;
+using MySqlEfPollingSample;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -44,7 +44,7 @@ builder.Services
 
 builder.Services
     .AddOpenTelemetry()
-    .ConfigureResource(r => r.AddService("EfMySqlSample"))
+    .ConfigureResource(r => r.AddService("MySqlEfPollingSample"))
     .WithTracing(b => b
         .AddAspNetCoreInstrumentation()
         .AddOutboxKitInstrumentation()

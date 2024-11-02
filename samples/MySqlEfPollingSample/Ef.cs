@@ -3,22 +3,11 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using YakShaveFx.OutboxKit.Core.Polling;
 
-namespace MultiTenantEfMySqlSample;
+namespace MySqlEfPollingSample;
 
-public sealed class SampleContext(
-    DbContextOptions<SampleContext> options,
-    ITenantProvider tenantProvider,
-    ConnectionStringProvider connectionStringProvider) : DbContext(options)
+public sealed class SampleContext(DbContextOptions<SampleContext> options) : DbContext(options)
 {
-    private static readonly MySqlServerVersion MySqlVersion = new(new Version(8, 0));
-
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
-
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        optionsBuilder.UseMySql(connectionStringProvider.GetConnectionString(tenantProvider.Tenant), MySqlVersion);
-        base.OnConfiguring(optionsBuilder);
-    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
         => modelBuilder.ApplyConfigurationsFromAssembly(GetType().Assembly);
@@ -38,34 +27,27 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
 {
     public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
-        builder.ToTable("outbox_messages");
         builder.HasKey(e => e.Id);
-        builder.Property(e => e.Id).HasColumnName("id");
-        builder.Property(e => e.Target).HasColumnName("target").HasMaxLength(128);
-        builder.Property(e => e.Type).HasColumnName("type").HasMaxLength(128);
-        builder.Property(e => e.Payload).HasColumnName("payload");
-        builder.Property(e => e.CreatedAt).HasColumnName("created_at");
-        builder.Property(e => e.ObservabilityContext).HasColumnName("observability_context");
+        builder.Property(e => e.Id);
+        builder.Property(e => e.Target).HasMaxLength(128);
+        builder.Property(e => e.Type).HasMaxLength(128);
+        builder.Property(e => e.Payload);
+        builder.Property(e => e.CreatedAt);
+        builder.Property(e => e.ObservabilityContext);
     }
 }
 
-public sealed class DbSetupHostedService(IServiceProvider serviceProvider, TenantList tenantList) : BackgroundService
+public sealed class DbSetupHostedService(IServiceProvider serviceProvider) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        foreach (var tenant in tenantList)
-        {
-            using var scope = serviceProvider.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<SampleContext>();
-            var tenantProvider = scope.ServiceProvider.GetRequiredService<TenantProvider>();
-            tenantProvider.SetTenant(tenant);
-            await context.Database.EnsureCreatedAsync(stoppingToken);
-        }
+        using var scope = serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<SampleContext>();
+        await context.Database.EnsureCreatedAsync(stoppingToken);
     }
 }
 
-public sealed class OutboxInterceptor(IKeyedOutboxTrigger trigger, ITenantProvider tenantProvider)
-    : SaveChangesInterceptor
+public sealed class OutboxInterceptor(IOutboxTrigger trigger) : SaveChangesInterceptor
 {
     private bool _hasOutboxMessages;
 
@@ -91,7 +73,7 @@ public sealed class OutboxInterceptor(IKeyedOutboxTrigger trigger, ITenantProvid
         {
             // this isn't mandatory, but if we don't trigger it after adding messages to the outbox, they will only be published on the next polling iteration
             // if waiting for polling iterations is acceptable, then don't call this:  code gets simpler and the db is less loaded
-            trigger.OnNewMessages(tenantProvider.Tenant);
+            trigger.OnNewMessages();
         }
 
         return await base.SavedChangesAsync(eventData, result, cancellationToken);

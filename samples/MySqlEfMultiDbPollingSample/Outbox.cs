@@ -2,7 +2,7 @@ using System.Text;
 using YakShaveFx.OutboxKit.Core;
 using YakShaveFx.OutboxKit.MySql;
 
-namespace MultiTenantEfMySqlSample;
+namespace MySqlEfMultiDbPollingSample;
 
 internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : ITargetProducer
 {

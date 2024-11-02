@@ -3,7 +3,7 @@ using YakShaveFx.OutboxKit.Core;
 using YakShaveFx.OutboxKit.Core.OpenTelemetry;
 using YakShaveFx.OutboxKit.MySql;
 
-namespace EfMySqlSample;
+namespace MySqlEfPollingSample;
 
 internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : ITargetProducer
 {
