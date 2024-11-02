@@ -25,6 +25,6 @@ internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : I
                 message.ObservabilityContext is null ? "null" : $"{message.ObservabilityContext.Length} bytes");
         }
 
-        return Task.FromResult(new ProduceResult(x));
+        return Task.FromResult(new ProduceResult { Ok = x });
     }
 }

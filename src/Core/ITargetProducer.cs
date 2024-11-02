@@ -10,4 +10,7 @@ public interface ITargetProducer
     Task<ProduceResult> ProduceAsync(IEnumerable<IMessage> messages, CancellationToken ct);
 }
 
-public sealed record ProduceResult(IReadOnlyCollection<IMessage> Ok);
+public sealed class ProduceResult
+{
+    public required IReadOnlyCollection<IMessage> Ok { get; init; }
+}

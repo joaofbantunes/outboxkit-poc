@@ -14,7 +14,7 @@ internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : I
         {
             logger.LogInformation(
                 """id {Id}, target {Target}, type {Type}, payload "{Payload}", created_at {CreatedAt}, observability_context {ObservabilityContext}""",
-                message.Id, 
+                message.Id,
                 message.Target,
                 message.Type,
                 Encoding.UTF8.GetString(message.Payload),
@@ -22,6 +22,6 @@ internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : I
                 message.ObservabilityContext is null ? "null" : $"{message.ObservabilityContext.Length} bytes");
         }
 
-        return Task.FromResult(new ProduceResult(x));
+        return Task.FromResult(new ProduceResult { Ok = x });
     }
 }

@@ -80,7 +80,7 @@ public static class ObservabilityContextHelpers
             : default;
 
         return ActivityHelpers.ActivitySource.StartActivity(
-            "outbox message publish",
+            "outbox message produce",
             ActivityKind.Internal,
             parentContext.Value.ActivityContext,
             links: links);
