@@ -17,7 +17,6 @@ public sealed class SampleContext(DbContextOptions<SampleContext> options) : DbC
 public sealed class OutboxMessage : IMessage
 {
     public long Id { get; init; }
-    public required string Target { get; init; }
     public required string Type { get; init; }
     public required byte[] Payload { get; init; }
     public DateTime CreatedAt { get; init; }
@@ -30,7 +29,6 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
     {
         builder.HasKey(e => e.Id);
         builder.Property(e => e.Id);
-        builder.Property(e => e.Target).HasMaxLength(128);
         builder.Property(e => e.Type).HasMaxLength(128);
         builder.Property(e => e.Payload);
         builder.Property(e => e.CreatedAt);
@@ -38,14 +36,16 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
     }
 }
 
-public sealed class DbSetupHostedService(IServiceProvider serviceProvider) : BackgroundService
+public sealed class DbSetupHostedService(IServiceProvider serviceProvider) : IHostedService
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<SampleContext>();
-        await context.Database.EnsureCreatedAsync(stoppingToken);
+        await context.Database.EnsureCreatedAsync(cancellationToken);
     }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed class OutboxInterceptor(IOutboxTrigger trigger) : SaveChangesInterceptor

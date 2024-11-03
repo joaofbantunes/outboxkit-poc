@@ -7,7 +7,7 @@ using YakShaveFx.OutboxKit.MySql;
 
 namespace MySqlEndToEndPollingSample.Producer;
 
-internal sealed class RabbitMqProducer : ITargetProducer
+internal sealed class RabbitMqProducer : IBatchProducer
 {
     private readonly IModel _model;
     private readonly RabbitMqSettings _settings;
@@ -28,7 +28,7 @@ internal sealed class RabbitMqProducer : ITargetProducer
         _model.ExchangeDeclare(settings.Exchange, ExchangeType.Topic);
     }
 
-    public Task<ProduceResult> ProduceAsync(IEnumerable<IMessage> messages, CancellationToken ct)
+    public Task<ProduceResult> ProduceAsync(IReadOnlyCollection<IMessage> messages, CancellationToken ct)
     {
         var ok = new List<IMessage>();
         foreach (var message in messages.Cast<Message>())

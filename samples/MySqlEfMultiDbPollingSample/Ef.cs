@@ -27,7 +27,6 @@ public sealed class SampleContext(
 public sealed class OutboxMessage
 {
     public long Id { get; init; }
-    public required string Target { get; init; }
     public required string Type { get; init; }
     public required byte[] Payload { get; init; }
     public DateTime CreatedAt { get; init; }
@@ -41,7 +40,6 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.ToTable("outbox_messages");
         builder.HasKey(e => e.Id);
         builder.Property(e => e.Id).HasColumnName("id");
-        builder.Property(e => e.Target).HasColumnName("target").HasMaxLength(128);
         builder.Property(e => e.Type).HasColumnName("type").HasMaxLength(128);
         builder.Property(e => e.Payload).HasColumnName("payload");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at");
@@ -49,9 +47,9 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
     }
 }
 
-public sealed class DbSetupHostedService(IServiceProvider serviceProvider, TenantList tenantList) : BackgroundService
+public sealed class DbSetupHostedService(IServiceProvider serviceProvider, TenantList tenantList) : IHostedService
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         foreach (var tenant in tenantList)
         {
@@ -59,9 +57,11 @@ public sealed class DbSetupHostedService(IServiceProvider serviceProvider, Tenan
             var context = scope.ServiceProvider.GetRequiredService<SampleContext>();
             var tenantProvider = scope.ServiceProvider.GetRequiredService<TenantProvider>();
             tenantProvider.SetTenant(tenant);
-            await context.Database.EnsureCreatedAsync(stoppingToken);
+            await context.Database.EnsureCreatedAsync(cancellationToken);
         }
     }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed class OutboxInterceptor(IKeyedOutboxTrigger trigger, ITenantProvider tenantProvider)

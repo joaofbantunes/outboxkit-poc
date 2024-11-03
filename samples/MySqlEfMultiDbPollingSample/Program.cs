@@ -29,10 +29,10 @@ builder.Services
         [tenantOne] = connectionStringOne,
         [tenantTwo] = connectionStringTwo
     }.ToFrozenDictionary()))
-    .AddSingleton<FakeTargetProducer>()
+    .AddSingleton<FakeBatchProducer>()
     .AddOutboxKit(kit =>
         kit
-            .WithTargetProducer<FakeTargetProducer>("fake")
+            .WithBatchProducer<FakeBatchProducer>()
             .WithMySqlPolling(
                 tenantOne,
                 p =>
@@ -57,7 +57,6 @@ app.MapPost("/publish/{count}", async (int count, Faker faker, SampleContext db,
     var messages = Enumerable.Range(0, count)
         .Select(_ => new OutboxMessage
         {
-            Target = "fake",
             Type = "sample",
             Payload = Encoding.UTF8.GetBytes($"{faker.Hacker.Verb()} from {tp.Tenant}"),
             CreatedAt = DateTime.UtcNow,

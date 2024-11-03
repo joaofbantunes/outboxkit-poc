@@ -132,7 +132,6 @@ file static class InitializationExtensions
              create table if not exists {databaseName}.outbox_messages
              (
                  id                    bigint auto_increment primary key,
-                 target                varchar(128) not null,
                  type                  varchar(128) not null,
                  payload               longblob     not null,
                  created_at            datetime(6)  not null,
@@ -148,7 +147,6 @@ file static class InitializationExtensions
 
         var messages = Enumerable.Range(1, seedCount).Select(i => new Message(
             0,
-            "some-target",
             "some-type",
             JsonSerializer.SerializeToUtf8Bytes($"payload{i}"),
             DateTime.UtcNow,
@@ -157,7 +155,7 @@ file static class InitializationExtensions
 
         await connection.ExecuteAsync(
             // lang=mysql
-            $"INSERT INTO {databaseName}.outbox_messages (target, type, payload, created_at, observability_context) VALUES (@Target, @Type, @Payload, @CreatedAt, @ObservabilityContext);",
+            $"INSERT INTO {databaseName}.outbox_messages (type, payload, created_at, observability_context) VALUES (@Type, @Payload, @CreatedAt, @ObservabilityContext);",
             messages);
     }
 }

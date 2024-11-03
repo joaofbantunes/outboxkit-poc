@@ -5,7 +5,6 @@ namespace YakShaveFx.OutboxKit.MongoDb;
 
 public sealed record Message(
     ObjectId Id,
-    string Target,
     string Type,
     byte[] Payload,
     DateTime CreatedAt,

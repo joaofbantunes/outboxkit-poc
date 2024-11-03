@@ -29,7 +29,7 @@ builder.Services
     .AddSingleton<RabbitMqProducer>()
     .AddOutboxKit(kit =>
         kit
-            .WithTargetProducer<RabbitMqProducer>("rabbitmq")
+            .WithBatchProducer<RabbitMqProducer>()
             .WithMySqlPolling(p => p.WithConnectionString(connectionString)))
     .AddSingleton(new Faker())
     .AddSingleton(TimeProvider.System)
@@ -47,13 +47,15 @@ builder.Services
         .AddOutboxKitInstrumentation()
         .AddSource("MySqlConnector")
         .AddSource(RabbitMqProducerActivitySource.ActivitySourceName)
-        .AddOtlpExporter(o => o.Endpoint = new Uri(builder.Configuration["OpenTelemetrySettings:Endpoint"] ?? "http://localhost:4317")))
+        .AddOtlpExporter(o =>
+            o.Endpoint = new Uri(builder.Configuration["OpenTelemetrySettings:Endpoint"] ?? "http://localhost:4317")))
     .WithMetrics(b => b
         .AddAspNetCoreInstrumentation()
         .AddMeter("MySqlConnector")
         // TODO: add OutboxKit instrumentation
         .AddMeter(RabbitMqProducerMetrics.MeterName)
-        .AddOtlpExporter(o => o.Endpoint = new Uri(builder.Configuration["OpenTelemetrySettings:Endpoint"] ?? "http://localhost:4317")));
+        .AddOtlpExporter(o =>
+            o.Endpoint = new Uri(builder.Configuration["OpenTelemetrySettings:Endpoint"] ?? "http://localhost:4317")));
 
 var app = builder.Build();
 
@@ -73,7 +75,6 @@ app.MapPost("/produce-something", async (
 
     var outboxMessage = new Message(
         default,
-        "rabbitmq",
         nameof(SampleEvent),
         JsonSerializer.SerializeToUtf8Bytes(@event),
         timeProvider.GetUtcNow().DateTime,
@@ -82,7 +83,7 @@ app.MapPost("/produce-something", async (
     await using var connection = await dataSource.OpenConnectionAsync();
     await connection.ExecuteAsync(
         // lang=mysql
-        "INSERT INTO outbox_messages (target, type, payload, created_at, observability_context) VALUES (@Target, @Type, @Payload, @CreatedAt, @ObservabilityContext)",
+        "INSERT INTO outbox_messages (type, payload, created_at, observability_context) VALUES (@Type, @Payload, @CreatedAt, @ObservabilityContext)",
         outboxMessage);
     trigger.OnNewMessages();
 });

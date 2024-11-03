@@ -198,7 +198,6 @@ internal sealed record TableConfiguration(
         "outbox_messages",
         [
             "id",
-            "target",
             "type",
             "payload",
             "created_at",
@@ -210,10 +209,9 @@ internal sealed record TableConfiguration(
         r => new Message(
             r.GetInt64(0),
             r.GetString(1),
-            r.GetString(2),
-            r.GetFieldValue<byte[]>(3),
-            r.GetDateTime(4),
-            r.IsDBNull(5) ? null : r.GetFieldValue<byte[]>(5)));
+            r.GetFieldValue<byte[]>(2),
+            r.GetDateTime(3),
+            r.IsDBNull(4) ? null : r.GetFieldValue<byte[]>(4)));
 }
 
 internal sealed record MySqlPollingSettings

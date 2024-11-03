@@ -50,33 +50,19 @@ internal sealed partial class Producer(
         {
             using var batchActivity = StartActivity("produce outbox message batch", key);
             using var scope = services.CreateScope();
-            var targetProducerProvider = scope.ServiceProvider.GetRequiredService<ITargetProducerProvider>();
+            var batchProducer = scope.ServiceProvider.GetRequiredService<IBatchProducerProvider>().Get();
 
             var messages = await FetchBatchAsync(ct);
 
             batchActivity?.SetTag(ActivityConstants.OutboxBatchSizeTag, messages.Count);
 
             if (messages.Count == 0) return;
-
-            var ok = new List<Message>(messages.Count);
-
-            try
-            {
-                var messagesByTarget = messages.GroupBy(m => m.Target);
-
-                foreach (var targetMessages in messagesByTarget)
-                {
-                    var targetProducer = targetProducerProvider.Get(targetMessages.Key);
-                    var result = await targetProducer.ProduceAsync(targetMessages, ct);
-                    ok.AddRange(result.Ok.Cast<Message>());
-                }
-            }
-            finally
-            {
-                // try to ack any messages already produced
-                // not passing the actual cancellation token to try to complete the batch even if the application is shutting down
-                await AckAsync(ok, CancellationToken.None);
-            }
+            
+            var result = await batchProducer.ProduceAsync(messages, ct);
+            
+            // try to ack any messages already produced
+            // not passing the actual cancellation token to try to complete the batch even if the application is shutting down
+            await AckAsync(result.Ok.Cast<Message>(), CancellationToken.None);
         }
     }
 

@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -14,8 +13,8 @@ public static class ServiceCollectionExtensions
     {
         var configurator = new OutboxKitConfigurator();
         configure(configurator);
-        services.AddSingleton<ITargetProducerProvider>(
-            s => new DefaultTargetProducerProvider(s, configurator.TargetProducers));
+
+        AddBatchProducerProvider(services, configurator);
 
         if (configurator.PollingConfigurators.Count > 0)
         {
@@ -28,6 +27,11 @@ public static class ServiceCollectionExtensions
         }
 
         return services;
+
+        static void AddBatchProducerProvider(IServiceCollection services, OutboxKitConfigurator configurator) 
+            // normally singleton would suffice, but in case the user registered the producer as scoped, we use scoped as well to support any of the 3 options
+            => services.AddScoped<IBatchProducerProvider>(
+                s => new BatchProducerProvider(configurator.BatchProducerType, s));
     }
 
     private static void AddOutboxKitPolling(IServiceCollection services, OutboxKitConfigurator configurator)
@@ -80,8 +84,8 @@ public static class ServiceCollectionExtensions
 
 public interface IOutboxKitConfigurator
 {
-    IOutboxKitConfigurator WithTargetProducer<TTargetProducer>(string target)
-        where TTargetProducer : class, ITargetProducer;
+    IOutboxKitConfigurator WithBatchProducer<TBatchProducer>()
+        where TBatchProducer : class, IBatchProducer;
 
     /// <summary>
     /// <para>Configures outbox kit for polling, with a default key.</para>
@@ -132,19 +136,20 @@ public interface IPushOutboxKitConfigurator
 
 internal sealed class OutboxKitConfigurator : IOutboxKitConfigurator
 {
-    private readonly Dictionary<string, Type> _targetProducers = new();
     private readonly Dictionary<string, IPollingOutboxKitConfigurator> _pollingConfigurators = new();
     private readonly Dictionary<string, IPushOutboxKitConfigurator> _pushConfigurators = new();
+    private Type? _batchProducerType;
 
-    public IReadOnlyDictionary<string, Type> TargetProducers => _targetProducers;
+    public Type BatchProducerType
+        => _batchProducerType ?? throw new InvalidOperationException("Batch producer type not set");
 
     public IReadOnlyDictionary<string, IPollingOutboxKitConfigurator> PollingConfigurators => _pollingConfigurators;
     public IReadOnlyDictionary<string, IPushOutboxKitConfigurator> PushConfigurators => _pushConfigurators;
 
-    public IOutboxKitConfigurator WithTargetProducer<TTargetProducer>(string target)
-        where TTargetProducer : class, ITargetProducer
+    public IOutboxKitConfigurator WithBatchProducer<TBatchProducer>()
+        where TBatchProducer : class, IBatchProducer
     {
-        _targetProducers.Add(target, typeof(TTargetProducer));
+        _batchProducerType = typeof(TBatchProducer);
         return this;
     }
 

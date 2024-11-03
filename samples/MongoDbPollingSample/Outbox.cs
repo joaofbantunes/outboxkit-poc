@@ -5,9 +5,9 @@ using YakShaveFx.OutboxKit.MongoDb;
 
 namespace MongoDbPollingSample;
 
-internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : ITargetProducer
+internal sealed class FakeBatchProducer(ILogger<FakeBatchProducer> logger) : IBatchProducer
 {
-    public Task<ProduceResult> ProduceAsync(IEnumerable<IMessage> messages, CancellationToken ct)
+    public Task<ProduceResult> ProduceAsync(IReadOnlyCollection<IMessage> messages, CancellationToken ct)
     {
         var x = messages.Cast<Message>().ToList();
         logger.LogInformation("Producing {Count} messages", x.Count);
@@ -16,9 +16,8 @@ internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : I
             using var activity = ObservabilityContextHelpers.StartActivityFromObservabilityContext(message.ObservabilityContext);
             
             logger.LogInformation(
-                """id {Id}, target {Target}, type {Type}, payload "{Payload}", created_at {CreatedAt}, observability_context {ObservabilityContext}""",
+                """id {Id}, type {Type}, payload "{Payload}", created_at {CreatedAt}, observability_context {ObservabilityContext}""",
                 message.Id, 
-                message.Target,
                 message.Type,
                 Encoding.UTF8.GetString(message.Payload),
                 message.CreatedAt,

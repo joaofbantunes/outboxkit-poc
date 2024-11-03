@@ -2,5 +2,5 @@ namespace YakShaveFx.OutboxKit.Core;
 
 public interface IMessage
 {
-    string Target { get; }
+    // empty for now, but can be extended in the future
 }

@@ -20,43 +20,24 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
         using var activity = StartActivity("produce outbox message batch", key);
         using var scope = serviceScopeFactory.CreateScope();
         var batchFetcher = scope.ServiceProvider.GetRequiredKeyedService<IOutboxBatchFetcher>(key);
-        var targetProducerProvider = scope.ServiceProvider.GetRequiredService<ITargetProducerProvider>();
+        var batchProducer = scope.ServiceProvider.GetRequiredService<IBatchProducerProvider>().Get();
 
         await using var batchContext = await batchFetcher.FetchAndHoldAsync(ct);
 
-        var ok = new List<IMessage>(batchContext.Messages.Count);
+        var messages = batchContext.Messages;
+        activity?.SetTag(ActivityConstants.OutboxBatchSizeTag, messages.Count);
 
-        try
-        {
-            var messages = batchContext.Messages;
-            activity?.SetTag(ActivityConstants.OutboxBatchSizeTag, messages.Count);
+        // if we got not messages, there either aren't messages available or are being produced concurrently
+        // in either case, we can break the loop
+        if (messages.Count <= 0) return false;
 
-            // if we got not messages, there either aren't messages available or are being produced concurrently
-            // in either case, we can break the loop
-            if (messages.Count <= 0) return false;
+        var result = await batchProducer.ProduceAsync(messages, ct);
 
-            var messagesByTarget = messages.GroupBy(m => m.Target);
+        // messages already produced, try to ack them
+        // not passing the actual cancellation token to try to complete the batch even if the application is shutting down
+        await batchContext.CompleteAsync(result.Ok, CancellationToken.None);
 
-            foreach (var targetMessages in messagesByTarget)
-            {
-                var targetProducer = targetProducerProvider.Get(targetMessages.Key);
-                var result = await targetProducer.ProduceAsync(targetMessages, ct);
-                ok.AddRange(result.Ok);
-            }
-
-            // messages already produced, try to ack them
-            // not passing the actual cancellation token to try to complete the batch even if the application is shutting down
-            await batchContext.CompleteAsync(ok, CancellationToken.None);
-
-            return await batchContext.HasNextAsync(ct);
-        }
-        catch (Exception)
-        {
-            // try to ack any messages already produced
-            // not passing the actual cancellation token to try to complete the batch even if the application is shutting down
-            await batchContext.CompleteAsync(ok, CancellationToken.None);
-            throw;
-        }
+        return await batchContext.HasNextAsync(ct);
     }
 
     private static Activity? StartActivity(string activityName, string key)
@@ -73,5 +54,3 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
             tags: [new(ActivityConstants.OutboxKeyTag, key)]);
     }
 }
-
-

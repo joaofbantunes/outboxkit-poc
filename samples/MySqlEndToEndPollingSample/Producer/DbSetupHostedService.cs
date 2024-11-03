@@ -1,23 +1,24 @@
 using MySqlConnector;
 
-internal sealed class DbSetupHostedService(MySqlDataSource dataSource) : BackgroundService
+internal sealed class DbSetupHostedService(MySqlDataSource dataSource) : IHostedService
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(stoppingToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var command = new MySqlCommand(
             // lang=mysql
             $"""
              create table if not exists outbox_messages
              (
                  id                    bigint auto_increment primary key,
-                 target                varchar(128) not null,
                  type                  varchar(128) not null,
                  payload               longblob     not null,
                  created_at            datetime(6)  not null,
                  observability_context longblob     null
              );
              """, connection);
-        await command.ExecuteNonQueryAsync(stoppingToken);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

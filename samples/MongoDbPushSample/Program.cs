@@ -17,13 +17,13 @@ const string databaseName = "outboxkit_mongo_push_sample";
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services
-    .AddSingleton<FakeTargetProducer>()
+    .AddSingleton<FakeBatchProducer>()
     .AddSingleton(new MongoClient(connectionString))
     .AddSingleton(s => s.GetRequiredService<MongoClient>().GetDatabase(databaseName))
     .AddSingleton(s => s.GetRequiredService<IMongoDatabase>().GetCollection<Message>("outbox_messages"))
     .AddOutboxKit(kit =>
         kit
-            .WithTargetProducer<FakeTargetProducer>("fake")
+            .WithBatchProducer<FakeBatchProducer>()
             .WithMongoDbPush(p =>
                 p
                     .WithConnectionString(connectionString)
@@ -53,7 +53,6 @@ app.MapPost("/publish/{count}", async (int count, Faker faker, IMongoCollection<
         .Select(_ => new Message
         (
             Id: ObjectId.Empty,
-            Target: "fake",
             Type: "sample",
             Payload: Encoding.UTF8.GetBytes(faker.Hacker.Verb()),
             CreatedAt: DateTime.UtcNow,
