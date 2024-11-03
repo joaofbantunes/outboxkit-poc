@@ -45,10 +45,17 @@ public interface IMySqlPollingOutboxKitConfigurator
 
 public interface IMySqlPollingOutboxTableConfigurator
 {
-    IMySqlPollingOutboxTableConfigurator WithTableName(string tableName);
+    IMySqlPollingOutboxTableConfigurator WithName(string name);
 
-    IMySqlPollingOutboxTableConfigurator WithColumnName<TProperty>(
-        Expression<Func<Message, TProperty>> propertyExpression, string columnName);
+    IMySqlPollingOutboxTableConfigurator WithColumns(IReadOnlyCollection<string> columns);
+
+    IMySqlPollingOutboxTableConfigurator WithIdColumn(string column);
+
+    IMySqlPollingOutboxTableConfigurator WithOrderByColumn(string column);
+
+    IMySqlPollingOutboxTableConfigurator WithIdGetter(Func<IMessage, object> idGetter);
+
+    IMySqlPollingOutboxTableConfigurator WithMessageFactory(Func<MySqlDataReader, IMessage> messageFactory);
 }
 
 internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurator, IMySqlPollingOutboxKitConfigurator
@@ -74,8 +81,12 @@ internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurat
     {
         if (pollingInterval <= TimeSpan.Zero)
         {
-            throw new ArgumentOutOfRangeException(nameof(pollingInterval), pollingInterval, "Polling interval must be greater than zero");
+            throw new ArgumentOutOfRangeException(
+                nameof(pollingInterval),
+                pollingInterval,
+                "Polling interval must be greater than zero");
         }
+
         _corePollingSettings = _corePollingSettings with { PollingInterval = pollingInterval };
         return this;
     }
@@ -113,48 +124,97 @@ internal sealed class PollingOutboxKitConfigurator : IPollingOutboxKitConfigurat
 
 internal sealed class MySqlPollingOutboxTableConfigurator : IMySqlPollingOutboxTableConfigurator
 {
-    private string _tableName = "outbox_messages";
+    private string _tableName = TableConfiguration.Default.Name;
 
-    private readonly Dictionary<string, string> _columnNameMappings = new()
+    private IReadOnlyCollection<string> _columns = TableConfiguration.Default.Columns;
+    private string _idColumn = TableConfiguration.Default.IdColumn;
+    private string _orderByColumn = TableConfiguration.Default.OrderByColumn;
+    private Func<IMessage, object> _idGetter = TableConfiguration.Default.IdGetter;
+    private Func<MySqlDataReader, IMessage> _messageFactory = TableConfiguration.Default.MessageFactory;
+
+    public TableConfiguration BuildConfiguration() => new(
+        _tableName,
+        _columns,
+        _idColumn,
+        _orderByColumn,
+        _idGetter, _messageFactory);
+
+    public IMySqlPollingOutboxTableConfigurator WithName(string name)
     {
-        [nameof(Message.Id)] = "id",
-        [nameof(Message.Target)] = "target",
-        [nameof(Message.Type)] = "type",
-        [nameof(Message.Payload)] = "payload",
-        [nameof(Message.CreatedAt)] = "created_at",
-        [nameof(Message.ObservabilityContext)] = "observability_context"
-    };
-
-    public TableConfiguration BuildConfiguration() => new(_tableName, _columnNameMappings);
-
-    public IMySqlPollingOutboxTableConfigurator WithTableName(string tableName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(tableName, nameof(tableName));
-        _tableName = tableName;
+        ArgumentException.ThrowIfNullOrWhiteSpace(name, nameof(name));
+        _tableName = name;
         return this;
     }
 
-    public IMySqlPollingOutboxTableConfigurator WithColumnName<TProperty>(
-        Expression<Func<Message, TProperty>> propertyExpression,
-        string columnName)
+    public IMySqlPollingOutboxTableConfigurator WithColumns(IReadOnlyCollection<string> columns)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(columnName, nameof(columnName));
-        if (propertyExpression.Body is MemberExpression { Member: PropertyInfo propertyInfo })
+        if (columns is not { Count: > 0 })
         {
-            _columnNameMappings[propertyInfo.Name] = columnName;
-        }
-        else
-        {
-            throw new ArgumentException(
-                "Property expression must be a member expression selecting a property",
-                nameof(propertyExpression));
+            throw new ArgumentException("Column names must not be empty", nameof(columns));
         }
 
+        _columns = columns.Select(c => c.Trim()).ToArray();
+        return this;
+    }
+
+    public IMySqlPollingOutboxTableConfigurator WithIdColumn(string column)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(column, nameof(column));
+        _idColumn = column.Trim();
+        return this;
+    }
+
+    public IMySqlPollingOutboxTableConfigurator WithOrderByColumn(string column)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(column, nameof(column));
+        _orderByColumn = column.Trim();
+        return this;
+    }
+
+    public IMySqlPollingOutboxTableConfigurator WithIdGetter(Func<IMessage, object> idGetter)
+    {
+        ArgumentNullException.ThrowIfNull(idGetter, nameof(idGetter));
+        _idGetter = idGetter;
+        return this;
+    }
+
+    public IMySqlPollingOutboxTableConfigurator WithMessageFactory(Func<MySqlDataReader, IMessage> messageFactory)
+    {
+        ArgumentNullException.ThrowIfNull(messageFactory, nameof(messageFactory));
+        _messageFactory = messageFactory;
         return this;
     }
 }
 
-internal sealed record TableConfiguration(string TableName, IReadOnlyDictionary<string, string> ColumnNameMappings);
+internal sealed record TableConfiguration(
+    string Name,
+    IReadOnlyCollection<string> Columns,
+    string IdColumn,
+    string OrderByColumn,
+    Func<IMessage, object> IdGetter,
+    Func<MySqlDataReader, IMessage> MessageFactory)
+{
+    public static TableConfiguration Default { get; } = new(
+        "outbox_messages",
+        [
+            "id",
+            "target",
+            "type",
+            "payload",
+            "created_at",
+            "observability_context"
+        ],
+        "id",
+        "id",
+        m => ((Message)m).Id,
+        r => new Message(
+            r.GetInt64(0),
+            r.GetString(1),
+            r.GetString(2),
+            r.GetFieldValue<byte[]>(3),
+            r.GetDateTime(4),
+            r.IsDBNull(5) ? null : r.GetFieldValue<byte[]>(5)));
+}
 
 internal sealed record MySqlPollingSettings
 {

@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using MySqlConnector;
 using YakShaveFx.OutboxKit.Core;
 using YakShaveFx.OutboxKit.Core.Polling;
@@ -8,29 +7,26 @@ namespace YakShaveFx.OutboxKit.MySql.Polling;
 // ReSharper disable once ClassNeverInstantiated.Global - automagically instantiated by DI
 internal sealed class OutboxBatchFetcher(
     MySqlPollingSettings pollingSettings,
-    TableConfiguration tableConfig,
+    TableConfiguration tableCfg,
     MySqlDataSource dataSource)
     : IOutboxBatchFetcher
 {
     private readonly int _batchSize = pollingSettings.BatchSize;
 
     private readonly string _selectQuery = $"""
-                                            SELECT
-                                                {tableConfig.ColumnNameMappings[nameof(Message.Id)]},
-                                                {tableConfig.ColumnNameMappings[nameof(Message.Target)]},
-                                                {tableConfig.ColumnNameMappings[nameof(Message.Type)]},
-                                                {tableConfig.ColumnNameMappings[nameof(Message.Payload)]},
-                                                {tableConfig.ColumnNameMappings[nameof(Message.CreatedAt)]},
-                                                {tableConfig.ColumnNameMappings[nameof(Message.ObservabilityContext)]}
-                                            FROM {tableConfig.TableName}
-                                            ORDER BY {tableConfig.ColumnNameMappings[nameof(Message.Id)]}
+                                            SELECT {string.Join(", ", tableCfg.Columns)}
+                                            FROM {tableCfg.Name}
+                                            ORDER BY {tableCfg.OrderByColumn}
                                             LIMIT @size
                                             FOR UPDATE;
                                             """;
 
-    private readonly string _deleteQuery = $"DELETE FROM {tableConfig.TableName} WHERE id IN ({{0}});";
+    private readonly string _deleteQuery = $"DELETE FROM {tableCfg.Name} WHERE {tableCfg.IdColumn} IN ({{0}});";
 
-    private readonly string _hasNextQuery = $"SELECT EXISTS(SELECT 1 FROM {tableConfig.TableName} LIMIT 1);";
+    private readonly string _hasNextQuery = $"SELECT EXISTS(SELECT 1 FROM {tableCfg.Name} LIMIT 1);";
+
+    private readonly Func<MySqlDataReader, IMessage> _messageFactory = tableCfg.MessageFactory;
+    private readonly Func<IMessage, object> _idGetter = tableCfg.IdGetter;
 
     public async Task<IOutboxBatchContext> FetchAndHoldAsync(CancellationToken ct)
     {
@@ -46,8 +42,8 @@ internal sealed class OutboxBatchFetcher(
                 await connection.DisposeAsync();
                 return EmptyBatchContext.Instance;
             }
-            
-            return new BatchContext(messages, connection, tx, _deleteQuery, _hasNextQuery);
+
+            return new BatchContext(messages, connection, tx, _idGetter, _deleteQuery, _hasNextQuery);
         }
         catch (Exception)
         {
@@ -56,34 +52,24 @@ internal sealed class OutboxBatchFetcher(
         }
     }
 
-// 3572
-    private async Task<List<Message>> FetchMessagesAsync(
+    private async Task<List<IMessage>> FetchMessagesAsync(
         MySqlConnection connection,
         MySqlTransaction tx,
         int size,
         CancellationToken ct)
     {
-        await using var command = new MySqlCommand(
-            _selectQuery,
-            connection,
-            tx);
+        await using var command = new MySqlCommand(_selectQuery, connection, tx);
 
         command.Parameters.AddWithValue("size", size);
 
         await using var reader = await command.ExecuteReaderAsync(ct);
 
         if (!reader.HasRows) return [];
-        
-        var messages = new List<Message>(size);
+
+        var messages = new List<IMessage>(size);
         while (await reader.ReadAsync(ct))
         {
-            messages.Add(new Message(
-                reader.GetInt64(0),
-                reader.GetString(1),
-                reader.GetString(2),
-                reader.GetFieldValue<byte[]>(3),
-                reader.GetDateTime(4),
-                reader.IsDBNull(5) ? null : reader.GetFieldValue<byte[]>(5)));
+            messages.Add(_messageFactory(reader));
         }
 
         return messages;
@@ -93,6 +79,7 @@ internal sealed class OutboxBatchFetcher(
         IReadOnlyCollection<IMessage> messages,
         MySqlConnection connection,
         MySqlTransaction tx,
+        Func<IMessage, object> idGetter,
         string deleteQuery,
         string hasNextQuery) : IOutboxBatchContext
     {
@@ -109,9 +96,9 @@ internal sealed class OutboxBatchFetcher(
                     tx);
 
                 var i = 0;
-                foreach (var m in ok.Cast<Message>())
+                foreach (var m in ok)
                 {
-                    command.Parameters.AddWithValue($"id{i}", m.Id);
+                    command.Parameters.AddWithValue($"id{i}", idGetter(m));
                     i++;
                 }
 

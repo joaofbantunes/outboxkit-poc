@@ -30,15 +30,22 @@ builder.Services
             .WithMySqlPolling(p =>
                 p
                     .WithConnectionString(connectionString)
-                    // this is optional, only needed if the default table name and column names don't match
+                    // this is optional, only needed if not using the default table structure
                     .WithTable(t => t
-                        .WithTableName("OutboxMessages")
-                        .WithColumnName(m => m.Id, nameof(OutboxMessage.Id))
-                        .WithColumnName(m => m.Target, nameof(OutboxMessage.Target))
-                        .WithColumnName(m => m.Type, nameof(OutboxMessage.Type))
-                        .WithColumnName(m => m.Payload, nameof(OutboxMessage.Payload))
-                        .WithColumnName(m => m.CreatedAt, nameof(OutboxMessage.CreatedAt))
-                        .WithColumnName(m => m.ObservabilityContext, nameof(OutboxMessage.ObservabilityContext)))))
+                        .WithName("OutboxMessages")
+                        .WithColumns(["Id", "Target", "Type", "Payload", "CreatedAt", "ObservabilityContext"])
+                        .WithIdColumn("Id")
+                        .WithOrderByColumn("Id")
+                        .WithIdGetter(m => ((OutboxMessage)m).Id)
+                        .WithMessageFactory(r => new OutboxMessage
+                        {
+                            Id = r.GetInt64(0),
+                            Target = r.GetString(1),
+                            Type = r.GetString(2),
+                            Payload = r.GetFieldValue<byte[]>(3),
+                            CreatedAt = r.GetDateTime(4),
+                            ObservabilityContext = r.IsDBNull(5) ? null : r.GetFieldValue<byte[]>(5)
+                        }))))
     .AddSingleton(new Faker())
     .AddSingleton(TimeProvider.System);
 
