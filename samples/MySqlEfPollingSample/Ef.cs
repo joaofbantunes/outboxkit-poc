@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using YakShaveFx.OutboxKit.Core;
 using YakShaveFx.OutboxKit.Core.Polling;
 
 namespace MySqlEfPollingSample;
@@ -13,7 +14,7 @@ public sealed class SampleContext(DbContextOptions<SampleContext> options) : DbC
         => modelBuilder.ApplyConfigurationsFromAssembly(GetType().Assembly);
 }
 
-public sealed class OutboxMessage
+public sealed class OutboxMessage : IMessage
 {
     public long Id { get; init; }
     public required string Target { get; init; }

@@ -1,7 +1,6 @@
 using System.Text;
 using YakShaveFx.OutboxKit.Core;
 using YakShaveFx.OutboxKit.Core.OpenTelemetry;
-using YakShaveFx.OutboxKit.MySql;
 
 namespace MySqlEfPollingSample;
 
@@ -9,7 +8,7 @@ internal sealed class FakeTargetProducer(ILogger<FakeTargetProducer> logger) : I
 {
     public Task<ProduceResult> ProduceAsync(IEnumerable<IMessage> messages, CancellationToken ct)
     {
-        var x = messages.Cast<Message>().ToList();
+        var x = messages.Cast<OutboxMessage>().ToList();
         logger.LogInformation("Producing {Count} messages", x.Count);
         foreach (var message in x)
         {
