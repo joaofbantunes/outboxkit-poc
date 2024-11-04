@@ -90,10 +90,7 @@ internal sealed class OutboxBatchFetcher(
             if (ok.Count > 0)
             {
                 var idParams = string.Join(", ", Enumerable.Range(0, ok.Count).Select(i => $"@id{i}"));
-                var command = new MySqlCommand(
-                    string.Format(deleteQuery, idParams),
-                    connection,
-                    tx);
+                var command = new MySqlCommand(string.Format(deleteQuery, idParams), connection, tx);
 
                 var i = 0;
                 foreach (var m in ok)

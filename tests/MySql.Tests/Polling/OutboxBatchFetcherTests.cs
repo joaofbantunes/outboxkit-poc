@@ -1,4 +1,6 @@
+using Dapper;
 using FluentAssertions;
+using MySqlConnector;
 using YakShaveFx.OutboxKit.MySql.Polling;
 using static YakShaveFx.OutboxKit.MySql.Tests.Polling.Defaults;
 
@@ -38,7 +40,7 @@ public class OutboxBatchFetcherTests(MySqlFixture mySqlFixture)
     }
 
     [Fact]
-    public async Task WhenTheOutboxIsPolledConcurrentlyTheSecondIsUnblockedByTheFirstCompletingObtainingTheNextBatch()
+    public async Task WhenTheOutboxIsPolledConcurrentlyTheSecondIsUnblockedByTheFirstCompleting()
     {
         await using var databaseContext = await mySqlFixture.DbInitializer.WithDefaultSchema().WithSeed().InitAsync();
         await using var connection = await databaseContext.DataSource.OpenConnectionAsync();
@@ -53,9 +55,66 @@ public class OutboxBatchFetcherTests(MySqlFixture mySqlFixture)
         await using var batch1 = await batch1Task;
         await batch1.CompleteAsync(batch1.Messages, CancellationToken.None);
         batch1.Messages.Cast<Message>().Should().AllSatisfy(m => m.Id.Should().BeInRange(1, 5));
-        
+
         await using var batch2 = await batch2Task;
         await batch2.CompleteAsync(batch2.Messages, CancellationToken.None);
         batch2.Messages.Cast<Message>().Should().AllSatisfy(m => m.Id.Should().BeInRange(6, 10));
     }
+
+    [Fact]
+    public async Task WhenABatchIsProducedThenTheRowsAreDeletedFromTheOutbox()
+    {
+        await using var databaseContext = await mySqlFixture.DbInitializer.WithDefaultSchema().WithSeed().InitAsync();
+        await using var connection = await databaseContext.DataSource.OpenConnectionAsync();
+
+        var sut = new OutboxBatchFetcher(DefaultPollingSettings, DefaultTableConfig, databaseContext.DataSource);
+
+        var messagesBefore = await FetchMessageIdsAsync(connection);
+
+        var batchTask = sut.FetchAndHoldAsync(CancellationToken.None);
+        await using var batch = await batchTask;
+        await batch.CompleteAsync(batch.Messages, CancellationToken.None);
+
+        var messagesAfter = await FetchMessageIdsAsync(connection);
+
+        messagesBefore.Should().Contain(batch.Messages.Select(m => ((Message)m).Id));
+        messagesAfter.Count.Should().Be(messagesBefore.Count - DefaultPollingSettings.BatchSize);
+        messagesAfter.Should().NotContain(batch.Messages.Select(m => ((Message)m).Id));
+    }
+
+    [Fact]
+    public async Task WhenABatchIsProducedButMessagesRemainThenHasNextShouldReturnTrue()
+    {
+        await using var databaseContext = await mySqlFixture.DbInitializer.WithDefaultSchema().WithSeed().InitAsync();
+        await using var connection = await databaseContext.DataSource.OpenConnectionAsync();
+
+        var sut = new OutboxBatchFetcher(DefaultPollingSettings, DefaultTableConfig, databaseContext.DataSource);
+
+        var batchTask = sut.FetchAndHoldAsync(CancellationToken.None);
+        await using var batch = await batchTask;
+        await batch.CompleteAsync(batch.Messages, CancellationToken.None);
+
+        (await batch.HasNextAsync(CancellationToken.None)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WhenABatchProducesAllRemainingMessagesThenHasNextShouldReturnFalse()
+    {
+        await using var databaseContext = await mySqlFixture.DbInitializer
+            .WithDefaultSchema()
+            .WithSeed(seedCount: DefaultPollingSettings.BatchSize)
+            .InitAsync();
+        await using var connection = await databaseContext.DataSource.OpenConnectionAsync();
+
+        var sut = new OutboxBatchFetcher(DefaultPollingSettings, DefaultTableConfig, databaseContext.DataSource);
+
+        var batchTask = sut.FetchAndHoldAsync(CancellationToken.None);
+        await using var batch = await batchTask;
+        await batch.CompleteAsync(batch.Messages, CancellationToken.None);
+
+        (await batch.HasNextAsync(CancellationToken.None)).Should().BeFalse();
+    }
+
+    private static async Task<IReadOnlyCollection<long>> FetchMessageIdsAsync(MySqlConnection connection)
+        => (await connection.QueryAsync<long>("SELECT id FROM outbox_messages;")).ToArray();
 }
