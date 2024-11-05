@@ -20,7 +20,6 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
         using var activity = StartActivity("produce outbox message batch", key);
         using var scope = serviceScopeFactory.CreateScope();
         var batchFetcher = scope.ServiceProvider.GetRequiredKeyedService<IOutboxBatchFetcher>(key);
-        var batchProducer = scope.ServiceProvider.GetRequiredService<IBatchProducerProvider>().Get();
 
         await using var batchContext = await batchFetcher.FetchAndHoldAsync(ct);
 
@@ -31,6 +30,7 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
         // in either case, we can break the loop
         if (messages.Count <= 0) return false;
 
+        var batchProducer = scope.ServiceProvider.GetRequiredService<IBatchProducerProvider>().Get();
         var result = await batchProducer.ProduceAsync(messages, ct);
 
         // messages already produced, try to ack them
