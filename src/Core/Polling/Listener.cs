@@ -8,7 +8,6 @@ internal sealed class Listener : IOutboxListener, IOutboxTrigger, IKeyedOutboxLi
     private readonly AsyncAutoResetEvent _autoResetEvent = new();
 
     public void OnNewMessages() => _autoResetEvent.Set();
-
     public Task WaitForMessagesAsync(CancellationToken ct) => _autoResetEvent.WaitAsync(ct);
 
     // for simplicity, implementing IKeyedOutboxListener and IKeyedOutboxTrigger as well, disregarding the key 
@@ -25,7 +24,7 @@ internal sealed class KeyedListener(IEnumerable<string> keys) : IKeyedOutboxList
     {
         if (!_autoResetEvents.TryGetValue(key, out var autoResetEvent))
         {
-            throw new ArgumentException($"Key {key} not found to trigger outbox message publishing", nameof(key));
+            throw new ArgumentException($"Key {key} not found to trigger outbox message production", nameof(key));
         }
 
         autoResetEvent.Set();

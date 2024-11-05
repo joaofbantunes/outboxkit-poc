@@ -18,4 +18,8 @@
       <Folder Include="Push\" />
     </ItemGroup>
 
+    <ItemGroup>
+        <InternalsVisibleTo Include="Core.Tests" />
+    </ItemGroup>
+
 </Project>
