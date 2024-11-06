@@ -57,34 +57,6 @@ public static class ObservabilityContextHelpers
             }
         }
     }
-
-    public static Activity? StartActivityFromObservabilityContext(byte[]? observabilityContext)
-    {
-        if (!ActivityHelpers.ActivitySource.HasListeners())
-        {
-            return null;
-        }
-
-        var parentContext = ExtractParentContext(observabilityContext);
-
-        if (!parentContext.HasValue)
-        {
-            return null;
-        }
-
-        // we're going to use a custom parent context to look like we're part of the same request flow
-        // as when the message was created but, to not lose completely the context of the outbox background job,
-        // we're linking it
-        var links = Activity.Current is { } currentActivity
-            ? new[] { new ActivityLink(currentActivity.Context) }
-            : default;
-
-        return ActivityHelpers.ActivitySource.StartActivity(
-            "outbox message produce",
-            ActivityKind.Internal,
-            parentContext.Value.ActivityContext,
-            links: links);
-    }
 }
 
 internal record struct ContextEntry(string Key, string Value);

@@ -1,5 +1,7 @@
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
+using YakShaveFx.OutboxKit.Core.OpenTelemetry;
 using YakShaveFx.OutboxKit.Core.Polling;
 
 namespace YakShaveFx.OutboxKit.Core.Tests.Polling;
@@ -54,7 +56,7 @@ public class ProducerTests
         producerSpy
             .ProduceAsync(default!, default)
             .ReturnsForAnyArgs(args =>
-                Task.FromResult(new ProduceResult { Ok = (IReadOnlyCollection<IMessage>)args[0] }));
+                Task.FromResult(new BatchProduceResult { Ok = (IReadOnlyCollection<IMessage>)args[0] }));
         var producerProviderStub = Substitute.For<IBatchProducerProvider>();
         producerProviderStub.Get().Returns(producerSpy);
         return (producerSpy, producerProviderStub);
@@ -66,6 +68,8 @@ public class ProducerTests
         => new ServiceCollection()
             .AddKeyedSingleton(Key, batchFetcher)
             .AddSingleton(producerProvider)
+            .AddMetrics()
+            .AddSingleton<ProducerMetrics>()
             .BuildServiceProvider();
 }
 

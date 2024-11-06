@@ -52,7 +52,7 @@ builder.Services
     .WithMetrics(b => b
         .AddAspNetCoreInstrumentation()
         .AddMeter("MySqlConnector")
-        // TODO: add OutboxKit instrumentation
+        .AddOutboxKitInstrumentation()
         .AddMeter(RabbitMqProducerMetrics.MeterName)
         .AddOtlpExporter(o =>
             o.Endpoint = new Uri(builder.Configuration["OpenTelemetrySettings:Endpoint"] ?? "http://localhost:4317")));

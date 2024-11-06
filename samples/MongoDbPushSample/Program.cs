@@ -37,10 +37,11 @@ builder.Services
     .WithTracing(b => b
         .AddAspNetCoreInstrumentation()
         .AddOutboxKitInstrumentation()
+        .AddSource(FakeBatchProducer.ActivitySource.Name)
         .AddOtlpExporter())
     .WithMetrics(b => b
         .AddAspNetCoreInstrumentation()
-        // TODO: add OutboxKit instrumentation
+        .AddOutboxKitInstrumentation()
         .AddOtlpExporter());
 
 var app = builder.Build();

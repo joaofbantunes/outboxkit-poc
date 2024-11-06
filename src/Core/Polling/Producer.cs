@@ -35,14 +35,30 @@ internal sealed class Producer(IServiceScopeFactory serviceScopeFactory) : IProd
         // in either case, we can break the loop
         if (messages.Count <= 0) return false;
 
-        var batchProducer = scope.ServiceProvider.GetRequiredService<IBatchProducerProvider>().Get();
-        var result = await batchProducer.ProduceAsync(messages, ct);
+        var result = await ProduceBatchAsync(scope, messages, ct);
 
+        BatchProduced(scope, key, messages.Count == result.Ok.Count);
+        
         // messages already produced, try to ack them
         // not passing the actual cancellation token to try to complete the batch even if the application is shutting down
         await batchContext.CompleteAsync(result.Ok, CancellationToken.None);
 
         return await batchContext.HasNextAsync(ct);
+    }
+
+    private static Task<BatchProduceResult> ProduceBatchAsync(
+        IServiceScope scope,
+        IReadOnlyCollection<IMessage> messages,
+        CancellationToken ct)
+    {
+        var batchProducer = scope.ServiceProvider.GetRequiredService<IBatchProducerProvider>().Get();
+        return batchProducer.ProduceAsync(messages, ct);
+    }
+
+    private static void BatchProduced(IServiceScope scope, string key, bool allMessagesProduced)
+    {
+        var metrics = scope.ServiceProvider.GetRequiredService<ProducerMetrics>();
+        metrics.BatchProduced(key, allMessagesProduced);
     }
 
     private static Activity? StartActivity(string activityName, string key)

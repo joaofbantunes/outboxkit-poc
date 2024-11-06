@@ -1,3 +1,4 @@
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
 namespace YakShaveFx.OutboxKit.Core.OpenTelemetry;
@@ -13,5 +14,9 @@ public static class OutboxKitInstrumentationTracerProviderBuilderExtensions
 
 public static class OutboxKitInstrumentationMeterProviderBuilderExtensions
 {
-    // TODO: implement
+    public static MeterProviderBuilder AddOutboxKitInstrumentation(this MeterProviderBuilder builder)
+    {
+        builder.AddMeter(MetricShared.MeterName);
+        return builder;
+    }
 }

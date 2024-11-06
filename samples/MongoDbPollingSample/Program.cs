@@ -37,11 +37,12 @@ builder.Services
     .ConfigureResource(r => r.AddService("MongoDbPushSample"))
     .WithTracing(b => b
         .AddAspNetCoreInstrumentation()
+        .AddSource(FakeBatchProducer.ActivitySource.Name)
         .AddOutboxKitInstrumentation()
         .AddOtlpExporter())
     .WithMetrics(b => b
         .AddAspNetCoreInstrumentation()
-        // TODO: add OutboxKit instrumentation
+        .AddOutboxKitInstrumentation()
         .AddOtlpExporter());
 
 var app = builder.Build();

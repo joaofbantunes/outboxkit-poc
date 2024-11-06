@@ -6,7 +6,7 @@ namespace MySqlEfMultiDbPollingSample;
 
 internal sealed class FakeBatchProducer(ILogger<FakeBatchProducer> logger) : IBatchProducer
 {
-    public Task<ProduceResult> ProduceAsync(IReadOnlyCollection<IMessage> messages, CancellationToken ct)
+    public Task<BatchProduceResult> ProduceAsync(IReadOnlyCollection<IMessage> messages, CancellationToken ct)
     {
         var x = messages.Cast<Message>().ToList();
         logger.LogInformation("Producing {Count} messages", x.Count);
@@ -21,6 +21,6 @@ internal sealed class FakeBatchProducer(ILogger<FakeBatchProducer> logger) : IBa
                 message.ObservabilityContext is null ? "null" : $"{message.ObservabilityContext.Length} bytes");
         }
 
-        return Task.FromResult(new ProduceResult { Ok = x });
+        return Task.FromResult(new BatchProduceResult { Ok = x });
     }
 }

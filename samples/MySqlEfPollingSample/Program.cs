@@ -54,6 +54,7 @@ builder.Services
     .WithTracing(b => b
         .AddAspNetCoreInstrumentation()
         .AddOutboxKitInstrumentation()
+        .AddSource(FakeBatchProducer.ActivitySource.Name)
         .AddSource("MySqlConnector")
         .AddOtlpExporter())
     .WithMetrics(b => b
