@@ -206,12 +206,14 @@ internal sealed record TableConfiguration(
         "id",
         "id",
         m => ((Message)m).Id,
-        r => new Message(
-            r.GetInt64(0),
-            r.GetString(1),
-            r.GetFieldValue<byte[]>(2),
-            r.GetDateTime(3),
-            r.IsDBNull(4) ? null : r.GetFieldValue<byte[]>(4)));
+        r => new Message
+        {
+            Id = r.GetInt64(0),
+            Type = r.GetString(1),
+            Payload = r.GetFieldValue<byte[]>(2),
+            CreatedAt = r.GetDateTime(3),
+            ObservabilityContext = r.IsDBNull(4) ? null : r.GetFieldValue<byte[]>(4)
+        });
 }
 
 internal sealed record MySqlPollingSettings

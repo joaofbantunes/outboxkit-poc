@@ -73,12 +73,13 @@ app.MapPost("/produce-something", async (
         Verb = faker.Hacker.Verb()
     };
 
-    var outboxMessage = new Message(
-        default,
-        nameof(SampleEvent),
-        JsonSerializer.SerializeToUtf8Bytes(@event),
-        timeProvider.GetUtcNow().DateTime,
-        ObservabilityContextHelpers.GetCurrentObservabilityContext());
+    var outboxMessage = new Message
+    {
+        Type = nameof(SampleEvent),
+        Payload = JsonSerializer.SerializeToUtf8Bytes(@event),
+        CreatedAt = timeProvider.GetUtcNow(),
+        ObservabilityContext = ObservabilityContextHelpers.GetCurrentObservabilityContext()
+    };
 
     await using var connection = await dataSource.OpenConnectionAsync();
     await connection.ExecuteAsync(

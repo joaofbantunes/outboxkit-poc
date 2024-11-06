@@ -145,13 +145,13 @@ file static class InitializationExtensions
     {
         if (seedCount == 0) return;
 
-        var messages = Enumerable.Range(1, seedCount).Select(i => new Message(
-            0,
-            "some-type",
-            JsonSerializer.SerializeToUtf8Bytes($"payload{i}"),
-            DateTime.UtcNow,
-            null
-        ));
+        var messages = Enumerable.Range(1, seedCount).Select(i => new Message
+        {
+            Type = "some-type",
+            Payload = JsonSerializer.SerializeToUtf8Bytes($"payload{i}"),
+            CreatedAt = DateTimeOffset.UtcNow,
+            ObservabilityContext = null
+        });
 
         await connection.ExecuteAsync(
             // lang=mysql

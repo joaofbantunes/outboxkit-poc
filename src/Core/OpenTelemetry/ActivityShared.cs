@@ -4,7 +4,7 @@ namespace YakShaveFx.OutboxKit.Core.OpenTelemetry;
 
 internal static class ActivityHelpers
 {
-    private static string ActivitySourceName { get; } = typeof(ActivityHelpers).Assembly.GetName().Name!;
+    private const string ActivitySourceName = "YakShaveFx.OutboxKit";
 
     internal static readonly ActivitySource ActivitySource = new(
         ActivitySourceName,
@@ -13,7 +13,6 @@ internal static class ActivityHelpers
 
 internal static class ActivityConstants
 {
-    // TODO: review these tags
     public const string OutboxKeyTag = "outbox.key";
     public const string OutboxBatchSizeTag = "outbox.batch.size";
 }

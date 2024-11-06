@@ -55,13 +55,12 @@ app.MapPost(
     {
         var messages = Enumerable.Range(0, count)
             .Select(_ => new Message
-            (
-                Id: ObjectId.Empty,
-                Type: "sample",
-                Payload: Encoding.UTF8.GetBytes(faker.Hacker.Verb()),
-                CreatedAt: DateTime.UtcNow,
-                ObservabilityContext: ObservabilityContextHelpers.GetCurrentObservabilityContext()
-            ));
+            {
+                Type = "sample",
+                Payload = Encoding.UTF8.GetBytes(faker.Hacker.Verb()),
+                CreatedAt = DateTime.UtcNow,
+                ObservabilityContext = ObservabilityContextHelpers.GetCurrentObservabilityContext()
+            });
 
         await collection.InsertManyAsync(messages);
         trigger.OnNewMessages();
