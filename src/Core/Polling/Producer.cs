@@ -4,7 +4,12 @@ using YakShaveFx.OutboxKit.Core.OpenTelemetry;
 
 namespace YakShaveFx.OutboxKit.Core.Polling;
 
-internal sealed class Producer(IServiceScopeFactory serviceScopeFactory)
+internal interface IProducer
+{
+    Task ProducePendingAsync(string key, CancellationToken ct);
+}
+
+internal sealed class Producer(IServiceScopeFactory serviceScopeFactory) : IProducer
 {
     public async Task ProducePendingAsync(string key, CancellationToken ct)
     {

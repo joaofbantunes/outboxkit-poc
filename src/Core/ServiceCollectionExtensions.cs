@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using YakShaveFx.OutboxKit.Core.OpenTelemetry;
 using YakShaveFx.OutboxKit.Core.Polling;
 
 namespace YakShaveFx.OutboxKit.Core;
@@ -28,7 +29,7 @@ public static class ServiceCollectionExtensions
 
         return services;
 
-        static void AddBatchProducerProvider(IServiceCollection services, OutboxKitConfigurator configurator) 
+        static void AddBatchProducerProvider(IServiceCollection services, OutboxKitConfigurator configurator)
             // normally singleton would suffice, but in case the user registered the producer as scoped, we use scoped as well to support any of the 3 options
             => services.AddScoped<IBatchProducerProvider>(
                 s => new BatchProducerProvider(configurator.BatchProducerType, s));
@@ -36,7 +37,8 @@ public static class ServiceCollectionExtensions
 
     private static void AddOutboxKitPolling(IServiceCollection services, OutboxKitConfigurator configurator)
     {
-        services.AddSingleton<Producer>();
+        services.AddSingleton<IProducer, Producer>();
+        services.AddSingleton<ProducerMetrics>();
 
         if (configurator.PollingConfigurators.Count == 1)
         {
@@ -63,9 +65,9 @@ public static class ServiceCollectionExtensions
             services.AddSingleton<IHostedService>(s => new PollingBackgroundService(
                 key,
                 s.GetRequiredService<IKeyedOutboxListener>(),
-                s.GetRequiredService<Producer>(),
+                s.GetRequiredService<IProducer>(),
                 s.GetRequiredService<TimeProvider>(),
-                s,
+                s.GetRequiredKeyedService<CorePollingSettings>(key),
                 s.GetRequiredService<ILogger<PollingBackgroundService>>()));
 
             pollingConfigurator.ConfigureServices(key, services);

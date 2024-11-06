@@ -63,12 +63,10 @@ public class ProducerTests
     private static IServiceProvider CreateServices(
         IOutboxBatchFetcher batchFetcher,
         IBatchProducerProvider producerProvider)
-    {
-        return new ServiceCollection()
+        => new ServiceCollection()
             .AddKeyedSingleton(Key, batchFetcher)
             .AddSingleton(producerProvider)
             .BuildServiceProvider();
-    }
 }
 
 public sealed class MessageStub : IMessage;

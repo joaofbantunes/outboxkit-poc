@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -7,13 +6,12 @@ namespace YakShaveFx.OutboxKit.Core.Polling;
 internal sealed partial class PollingBackgroundService(
     string key,
     IKeyedOutboxListener listener,
-    Producer producer,
+    IProducer producer,
     TimeProvider timeProvider,
-    IServiceProvider services,
+    CorePollingSettings settings,
     ILogger<PollingBackgroundService> logger) : BackgroundService
 {
-    private readonly TimeSpan _pollingInterval
-        = services.GetRequiredKeyedService<CorePollingSettings>(key).PollingInterval;
+    private readonly TimeSpan _pollingInterval = settings.PollingInterval;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -51,9 +49,7 @@ internal sealed partial class PollingBackgroundService(
                 // - being notified of new messages added to the outbox
                 // - poll the outbox every x amount of time, for example, in cases where another instance of the service persisted
                 //   something but didn't produce it, or some error occurred when producing and there are pending messages
-                await Task.WhenAny(
-                    listenerTask,
-                    delayTask);
+                await Task.WhenAny(listenerTask, delayTask);
 
                 LogWakeUp(logger, key, listenerTask.IsCompleted ? "listener triggered" : "polling interval elapsed");
 

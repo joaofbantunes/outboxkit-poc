@@ -59,7 +59,7 @@ builder.Services
     .WithMetrics(b => b
         .AddAspNetCoreInstrumentation()
         .AddMeter("MySqlConnector")
-        // TODO: add OutboxKit instrumentation
+        .AddOutboxKitInstrumentation()
         .AddOtlpExporter());
 
 var app = builder.Build();
