@@ -7,6 +7,7 @@ internal sealed class ProducerMetrics : IDisposable
 {
     private readonly Meter _meter;
     private readonly Counter<long> _producedBatchesCounter;
+    private readonly Counter<long> _producedMessagesCounter;
 
     public ProducerMetrics(IMeterFactory meterFactory)
     {
@@ -16,6 +17,11 @@ internal sealed class ProducerMetrics : IDisposable
             "outbox.produced_batches",
             unit: "{batch}",
             description: "The number of batches produced");
+        
+        _producedMessagesCounter = _meter.CreateCounter<long>(
+            "outbox.produced_messages",
+            unit: "{message}",
+            description: "The number of messages produced");
     }
     
     public void BatchProduced(string key, bool allMessagesProduced)
@@ -28,6 +34,18 @@ internal sealed class ProducerMetrics : IDisposable
                 { "all_messages_produced", allMessagesProduced }
             };
             _producedBatchesCounter.Add(1, tags);
+        }
+    }
+    
+    public void MessagesProduced(string key, int count)
+    {
+        if (_producedMessagesCounter.Enabled && count > 0)
+        {
+            var tags = new TagList
+            {
+                { "key", key }
+            };
+            _producedMessagesCounter.Add(count, tags);
         }
     }
 

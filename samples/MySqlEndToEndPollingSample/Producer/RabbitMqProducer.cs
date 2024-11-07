@@ -28,7 +28,7 @@ internal sealed class RabbitMqProducer : IBatchProducer
         _model.ExchangeDeclare(settings.Exchange, ExchangeType.Topic);
     }
 
-    public Task<BatchProduceResult> ProduceAsync(IReadOnlyCollection<IMessage> messages, CancellationToken ct)
+    public Task<BatchProduceResult> ProduceAsync(string key, IReadOnlyCollection<IMessage> messages, CancellationToken ct)
     {
         var ok = new List<IMessage>();
         foreach (var message in messages.Cast<Message>())

@@ -4,7 +4,7 @@ namespace YakShaveFx.OutboxKit.Core;
 
 public interface IBatchProducer
 {
-    Task<BatchProduceResult> ProduceAsync(IReadOnlyCollection<IMessage> messages, CancellationToken ct);
+    Task<BatchProduceResult> ProduceAsync(string key, IReadOnlyCollection<IMessage> messages, CancellationToken ct);
 }
 
 public sealed class BatchProduceResult

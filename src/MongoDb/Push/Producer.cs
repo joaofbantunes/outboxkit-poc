@@ -49,8 +49,6 @@ internal sealed partial class Producer(
         while (await HasNextAsync(ct))
         {
             using var batchActivity = StartActivity("produce outbox message batch", key);
-            using var scope = services.CreateScope();
-            var batchProducer = scope.ServiceProvider.GetRequiredService<IBatchProducerProvider>().Get();
 
             var messages = await FetchBatchAsync(ct);
 
@@ -58,7 +56,9 @@ internal sealed partial class Producer(
 
             if (messages.Count == 0) return;
             
-            var result = await batchProducer.ProduceAsync(messages, ct);
+            using var scope = services.CreateScope();
+            var batchProducer = scope.ServiceProvider.GetRequiredService<IBatchProducerProvider>().Get();
+            var result = await batchProducer.ProduceAsync(key, messages, ct);
             
             // try to ack any messages already produced
             // not passing the actual cancellation token to try to complete the batch even if the application is shutting down

@@ -23,7 +23,7 @@ public class ProducerTests
 
         await producerSpy
             .DidNotReceive()
-            .ProduceAsync(Arg.Any<IReadOnlyCollection<IMessage>>(), Arg.Any<CancellationToken>());
+            .ProduceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyCollection<IMessage>>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -42,7 +42,7 @@ public class ProducerTests
 
         await producerSpy
             .Received(numberOfBatches)
-            .ProduceAsync(Arg.Any<IReadOnlyCollection<IMessage>>(), Arg.Any<CancellationToken>());
+            .ProduceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyCollection<IMessage>>(), Arg.Any<CancellationToken>());
     }
 
     private static OutboxBatchContextStub[] CreateBatchContexts(int numberOfBatches)
@@ -54,9 +54,9 @@ public class ProducerTests
     {
         var producerSpy = Substitute.For<IBatchProducer>();
         producerSpy
-            .ProduceAsync(default!, default)
+            .ProduceAsync(default!, default!, default)
             .ReturnsForAnyArgs(args =>
-                Task.FromResult(new BatchProduceResult { Ok = (IReadOnlyCollection<IMessage>)args[0] }));
+                Task.FromResult(new BatchProduceResult { Ok = (IReadOnlyCollection<IMessage>)args[1] }));
         var producerProviderStub = Substitute.For<IBatchProducerProvider>();
         producerProviderStub.Get().Returns(producerSpy);
         return (producerSpy, producerProviderStub);
